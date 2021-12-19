@@ -1,0 +1,13 @@
+[package]
+name = "dwm_status"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.15.0", features = ["full"] }
+futures = "0.3.17"
+async-trait = "0.1.52"
+chrono = "0.4.19"
+byte-unit = "4.0.13"
