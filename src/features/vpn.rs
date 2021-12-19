@@ -4,20 +4,25 @@ use tokio::sync::{ mpsc, Mutex };
 use tokio::time::{ sleep, Duration };
 use chrono::offset::Utc;
 use std::process::Command;
+use crate::StatusBar;
 
 pub struct Vpn {
+    status_bar: Arc<StatusBar>,
     prefix: &'static str,
-    position: u8,
-    tx: mpsc::Sender<(u8, String)>,
+    idle: Duration,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Vpn {
-    fn new(position: u8, prefix: &'static str, tx: mpsc::Sender<(u8, String)>) -> Self {
+    fn new(
+        status_bar: Arc<StatusBar>,
+        prefix: &'static str,
+        idle: Duration,
+    ) -> Self {
         Self {
+            status_bar,
             prefix,
-            position,
-            tx,
+            idle,
         }
     }
 
@@ -32,9 +37,9 @@ impl FeatureTrait for Vpn {
                         output = format!("{}☂", self.prefix);
                     }
 
-                    self.tx.send((self.position, output)).await.unwrap();
+                    *self.status_bar.vpn.write().await = output;
 
-                    sleep(Duration::from_secs(10)).await;
+                    sleep(self.idle).await;
                 },
                 Err(_) => {
                     eprintln!("'mullvad' command not found!");

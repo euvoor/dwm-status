@@ -1,23 +1,29 @@
+use std::sync::Arc;
 use crate::FeatureTrait;
 use tokio::time::{ sleep, Duration };
 use tokio::sync::mpsc;
 use tokio::fs::read_to_string;
 use std::process::{ Command, Stdio };
 use std::io::prelude::*;
+use crate::StatusBar;
 
 pub struct Gpu {
+    status_bar: Arc<StatusBar>,
     prefix: &'static str,
-    position: u8,
-    tx: mpsc::Sender<(u8, String)>,
+    idle: Duration,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Gpu {
-    fn new(position: u8, prefix: &'static str, tx: mpsc::Sender<(u8, String)>) -> Self {
+    fn new(
+        status_bar: Arc<StatusBar>,
+        prefix: &'static str,
+        idle: Duration,
+    ) -> Self {
         Self {
+            status_bar,
             prefix,
-            position,
-            tx,
+            idle,
         }
     }
 
@@ -46,9 +52,9 @@ impl FeatureTrait for Gpu {
                 fan_rpm,
             );
 
-            self.tx.send((self.position, output)).await.unwrap();
+            *self.status_bar.gpu.write().await = output;
 
-            sleep(Duration::from_secs(3)).await;
+            sleep(self.idle).await;
         }
     }
 }

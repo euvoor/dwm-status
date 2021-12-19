@@ -5,17 +5,26 @@ use std::io::prelude::*;
 use tokio::fs::read_to_string;
 use byte_unit::Byte;
 use tokio::time::{ sleep, Duration };
+use crate::StatusBar;
 
 pub struct Memory {
+    status_bar: Arc<StatusBar>,
     prefix: &'static str,
-    position: u8,
-    tx: mpsc::Sender<(u8, String)>,
+    idle: Duration,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Memory {
-    fn new(position: u8, prefix: &'static str, tx: mpsc::Sender<(u8, String)>) -> Self {
-        Self { prefix, position, tx }
+    fn new(
+        status_bar: Arc<StatusBar>,
+        prefix: &'static str,
+        idle: Duration,
+    ) -> Self {
+        Self {
+            status_bar,
+            prefix,
+            idle,
+        }
     }
 
     async fn pull(&mut self) {
@@ -49,9 +58,9 @@ impl FeatureTrait for Memory {
             let used = Byte::from_bytes(memtotal - memfree - buff_cache).get_appropriate_unit(true);
             let output = format!("{}(U: {})", self.prefix, used);
 
-            self.tx.send((self.position, output)).await.unwrap();
+            *self.status_bar.memory.write().await = output;
 
-            sleep(Duration::from_secs(10)).await;
+            sleep(self.idle).await;
         }
     }
 }

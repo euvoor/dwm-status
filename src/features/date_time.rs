@@ -3,17 +3,26 @@ use crate::FeatureTrait;
 use tokio::sync::{ mpsc, Mutex };
 use tokio::time::{ sleep, Duration };
 use chrono::offset::Utc;
+use crate::StatusBar;
 
 pub struct DateTime {
+    status_bar: Arc<StatusBar>,
     prefix: &'static str,
-    position: u8,
-    tx: mpsc::Sender<(u8, String)>,
+    idle: Duration,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for DateTime {
-    fn new(position: u8, prefix: &'static str, tx: mpsc::Sender<(u8, String)>) -> Self {
-        Self { prefix, position, tx }
+    fn new(
+        status_bar: Arc<StatusBar>,
+        prefix: &'static str,
+        idle: Duration,
+    ) -> Self {
+        Self {
+            status_bar,
+            prefix,
+            idle,
+        }
     }
 
     async fn pull(&mut self) {
@@ -21,9 +30,9 @@ impl FeatureTrait for DateTime {
             let date_time = Utc::now();
             let output = format!("{}{}", self.prefix, date_time.format("%e %b %X"));
 
-            self.tx.send((self.position, output)).await.unwrap();
+            *self.status_bar.date_time.write().await = output;
 
-            sleep(Duration::from_secs(1)).await;
+            sleep(self.idle).await;
         }
     }
 }

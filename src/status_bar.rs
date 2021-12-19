@@ -1,27 +1,19 @@
-#![allow(dead_code)]
-
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[derive(Default, Debug)]
 pub struct StatusBar {
-    pub blocks: Arc<RwLock<Vec<String>>>,
+    pub cpu: RwLock<String>,
+    pub date_time: RwLock<String>,
+    pub gpu: RwLock<String>,
+    pub memory: RwLock<String>,
+    pub ping: RwLock<String>,
+    pub vpn: RwLock<String>,
 }
 
 impl StatusBar {
-    pub fn new(nb_blocks: u8) -> Self {
-        let blocks = vec![String::new(); nb_blocks.into()];
-
+    pub fn new() -> Self {
         Self {
-            blocks: Arc::new(RwLock::new(blocks)),
+            ..Default::default()
         }
-    }
-
-    pub async fn update(&mut self, n: u8, data: String) {
-        let blocks = self.blocks.clone();
-        let mut blocks = blocks.write().await;
-        let len = blocks.len();
-        let pos = (len - 1) - (n as usize);
-
-        blocks[pos] = data;
     }
 }

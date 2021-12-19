@@ -15,8 +15,6 @@ use tokio::time::{ sleep, Duration };
 use features::FeatureTrait;
 use status_bar::StatusBar;
 
-use dwm_status::start_status_bar;
-
 use features::{
     DateTime,
     Ping,
@@ -28,19 +26,16 @@ use features::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (tx, rx) = mpsc::channel(100);
-
-    start_status_bar(rx);
-
     let futures = FuturesUnordered::new();
+    let status_bar = Arc::new(StatusBar::new());
 
     let resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![
-        Box::new(Vpn::new(1, "Vpn: ", tx.clone())),
-        Box::new(DateTime::new(2, "", tx.clone())),
-        Box::new(Ping::new(3, "Ping: ", tx.clone())),
-        Box::new(Memory::new(4, "Mem: ", tx.clone())),
-        Box::new(Cpu::new(5, "Cpu: ", tx.clone())),
-        Box::new(Gpu::new(6, "Gpu: ", tx.clone())),
+        Box::new(Vpn::new(status_bar.clone(), "Vpn: ", Duration::from_secs(1))),
+        Box::new(DateTime::new(status_bar.clone(), "", Duration::from_secs(1))),
+        Box::new(Ping::new(status_bar.clone(), "Ping: ", Duration::from_secs(1))),
+        Box::new(Memory::new(status_bar.clone(), "Mem: ", Duration::from_secs(1))),
+        Box::new(Cpu::new(status_bar.clone(), "Cpu: ", Duration::from_secs(1))),
+        Box::new(Gpu::new(status_bar.clone(), "Gpu: ", Duration::from_secs(1))),
     ];
 
     for mut resource in resources {
@@ -48,6 +43,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             resource.pull().await;
         }));
     }
+
+    let status_bar = status_bar.clone();
+
+    tokio::spawn(async move {
+        loop {
+            let mut output: Vec<String> = vec![];
+
+            { output.push(status_bar.vpn.read().await.to_string()); }
+            { output.push(status_bar.date_time.read().await.to_string()); }
+            { output.push(status_bar.ping.read().await.to_string()); }
+            { output.push(status_bar.memory.read().await.to_string()); }
+            { output.push(status_bar.cpu.read().await.to_string()); }
+            { output.push(status_bar.gpu.read().await.to_string()); }
+
+            let output: Vec<String> = output.iter()
+                .rev()
+                .filter(|stat| stat.len() > 0)
+                .map(|stat| format!("[ {} ]", stat))
+                .collect();
+
+            Command::new("xsetroot")
+                .args(&["-name", &output.join(" ")])
+                .output()
+                .unwrap();
+
+            sleep(Duration::from_secs(1)).await;
+        }
+    });
 
     join_all(futures).await;
 
