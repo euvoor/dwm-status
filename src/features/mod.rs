@@ -16,3 +16,6 @@ pub(super) use gpu::Gpu;
 
 pub(super) mod ping;
 pub(super) use ping::Ping;
+
+pub(super) mod vpn;
+pub(super) use vpn::Vpn;

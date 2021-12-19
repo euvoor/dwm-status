@@ -23,6 +23,7 @@ use features::{
     Memory,
     Cpu,
     Gpu,
+    Vpn,
 };
 
 #[tokio::main]
@@ -34,11 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let futures = FuturesUnordered::new();
 
     let resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![
-        Box::new(DateTime::new(1, "", tx.clone())),
-        Box::new(Ping::new(2, "Ping: ", tx.clone())),
-        Box::new(Memory::new(3, "Mem: ", tx.clone())),
-        Box::new(Cpu::new(4, "Cpu: ", tx.clone())),
-        Box::new(Gpu::new(5, "Gpu: ", tx.clone())),
+        Box::new(Vpn::new(1, "Vpn: ", tx.clone())),
+        Box::new(DateTime::new(2, "", tx.clone())),
+        Box::new(Ping::new(3, "Ping: ", tx.clone())),
+        Box::new(Memory::new(4, "Mem: ", tx.clone())),
+        Box::new(Cpu::new(5, "Cpu: ", tx.clone())),
+        Box::new(Gpu::new(6, "Gpu: ", tx.clone())),
     ];
 
     for mut resource in resources {
