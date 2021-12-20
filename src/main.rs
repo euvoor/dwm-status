@@ -37,9 +37,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(net_stats),
         Box::new(Vpn::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(DateTime::new(status_bar.clone(), "", Duration::from_secs(1))),
-        Box::new(Ping::new(status_bar.clone(), "⚡ ", Duration::from_secs(1))),
+        Box::new(Ping::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(Memory::new(status_bar.clone(), "Mem: ", Duration::from_secs(1))),
-        Box::new(Cpu::new(status_bar.clone(), "Cpu: ", Duration::from_secs(1))),
+        Box::new(Cpu::new(status_bar.clone(), "Cpu:", Duration::from_secs(1))),
         Box::new(Gpu::new(status_bar.clone(), "Gpu: ", Duration::from_secs(1))),
     ];
 
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect();
 
             Command::new("xsetroot")
-                .args(&["-name", &output.join("‖")])
+                .args(&["-name", &output.join("▕▏")])
                 .output()
                 .unwrap();
 

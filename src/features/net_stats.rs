@@ -7,6 +7,7 @@ use crate::StatusBar;
 use tokio::fs::read_to_string;
 use std::collections::HashMap;
 use byte_unit::Byte;
+use std::path::Path;
 
 pub struct NetStats {
     status_bar: Arc<StatusBar>,
@@ -58,7 +59,15 @@ impl FeatureTrait for NetStats {
 
                                 prev_stats.insert(iface, (recv, trans));
 
-                                output.push(format!("{}/{}", recv_stat, trans_stat));
+                                let mut ifacestr = format!("{}/{}", recv_stat, trans_stat);
+
+                                if Path::new(&format!("/sys/class/net/{}/wireless", iface)).exists() {
+                                    ifacestr = format!("W: {}", ifacestr);
+                                } else {
+                                    ifacestr = format!("E: {}", ifacestr);
+                                }
+
+                                output.push(ifacestr);
                             }
                         }
                     }
@@ -68,7 +77,9 @@ impl FeatureTrait for NetStats {
                 output = output.iter().map(|a| format!("({})", a)).collect::<Vec<String>>();
             }
 
-            *self.status_bar.net_stats.write().await = output.join(" ");
+            let output = format!("{}{}", self.prefix, output.join(" "));
+
+            *self.status_bar.net_stats.write().await = output;
 
             sleep(self.idle).await;
         }
