@@ -19,3 +19,6 @@ pub(super) use ping::Ping;
 
 pub(super) mod vpn;
 pub(super) use vpn::Vpn;
+
+pub(super) mod net_stats;
+pub(super) use net_stats::NetStats;

@@ -22,14 +22,19 @@ use features::{
     Cpu,
     Gpu,
     Vpn,
+    NetStats,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let futures = FuturesUnordered::new();
     let status_bar = Arc::new(StatusBar::new());
+    let mut net_stats = NetStats::new(status_bar.clone(), "", Duration::from_secs(1));
+
+    net_stats.set_ifaces(vec!["enp10s0", "wlx04d4c464bd3c"]);
 
     let resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![
+        Box::new(net_stats),
         Box::new(Vpn::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(DateTime::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(Ping::new(status_bar.clone(), "⚡ ", Duration::from_secs(1))),
@@ -56,15 +61,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             { output.push(status_bar.memory.read().await.to_string()); }
             { output.push(status_bar.cpu.read().await.to_string()); }
             { output.push(status_bar.gpu.read().await.to_string()); }
+            { output.push(status_bar.net_stats.read().await.to_string()); }
 
             let output: Vec<String> = output.iter()
                 .rev()
                 .filter(|stat| stat.len() > 0)
-                .map(|stat| format!("[ {} ]", stat))
+                .map(|stat| format!("{}", stat))
                 .collect();
 
             Command::new("xsetroot")
-                .args(&["-name", &output.join(" ")])
+                .args(&["-name", &output.join("‖")])
                 .output()
                 .unwrap();
 

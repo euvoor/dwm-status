@@ -8,6 +8,7 @@ pub struct StatusBar {
     pub memory: RwLock<String>,
     pub ping: RwLock<String>,
     pub vpn: RwLock<String>,
+    pub net_stats: RwLock<String>,
 }
 
 impl StatusBar {
