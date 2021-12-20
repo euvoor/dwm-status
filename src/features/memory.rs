@@ -55,8 +55,8 @@ impl FeatureTrait for Memory {
                 });
 
             let buff_cache = buffers + cached;
-            let used = Byte::from_bytes(memtotal - memfree - buff_cache).get_appropriate_unit(true);
-            let output = format!("{}(U: {})", self.prefix, used);
+            let used = memtotal - memfree - buff_cache;
+            let output = format!("{}{:.1}%", self.prefix, (used as f64 / memtotal as f64) * 100.0);
 
             *self.status_bar.memory.write().await = output;
 

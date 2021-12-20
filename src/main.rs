@@ -30,9 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let status_bar = Arc::new(StatusBar::new());
 
     let resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![
-        Box::new(Vpn::new(status_bar.clone(), "Vpn: ", Duration::from_secs(1))),
+        Box::new(Vpn::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(DateTime::new(status_bar.clone(), "", Duration::from_secs(1))),
-        Box::new(Ping::new(status_bar.clone(), "Ping: ", Duration::from_secs(1))),
+        Box::new(Ping::new(status_bar.clone(), "⚡ ", Duration::from_secs(1))),
         Box::new(Memory::new(status_bar.clone(), "Mem: ", Duration::from_secs(1))),
         Box::new(Cpu::new(status_bar.clone(), "Cpu: ", Duration::from_secs(1))),
         Box::new(Gpu::new(status_bar.clone(), "Gpu: ", Duration::from_secs(1))),

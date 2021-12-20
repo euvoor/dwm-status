@@ -7,6 +7,7 @@ use byte_unit::Byte;
 use tokio::time::{ sleep, Duration };
 use std::process::Command;
 use crate::StatusBar;
+use crate::Vpn;
 
 pub struct Ping {
     status_bar: Arc<StatusBar>,
@@ -30,8 +31,23 @@ impl FeatureTrait for Ping {
 
     async fn pull(&mut self) {
         loop {
+            let mut server = "1.1.1.1".to_string();
+
+            if let Some(vpn) = Vpn::is_connected() {
+                if vpn {
+                    let resolv = read_to_string("/etc/resolv.conf").await.unwrap();
+
+                    resolv.split('\n')
+                        .for_each(|line| {
+                            if line.trim().starts_with("nameserver") {
+                                server = line.split_whitespace().last().unwrap().to_string();
+                            }
+                        });
+                }
+            }
+
             let ping = Command::new("ping")
-                .args(&["-n", "-c1", "1.1.1.1"])
+                .args(&["-n", "-c1", &server])
                 .output()
                 .unwrap();
 

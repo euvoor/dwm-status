@@ -37,14 +37,14 @@ impl FeatureTrait for Cpu {
         loop {
             let (usage, cores) = self._usage().await;
             let mut output = format!(
-                "{}(U: {:.1}% {})",
+                "{}{:.1}% {}",
                 self.prefix,
                 usage,
                 String::from_iter(cores)
             );
 
             match self._temperature().await {
-                Some(temp) => { output = format!("{} (T: {})", output, temp); },
+                Some(temp) => { output = format!("{} {}", output, temp); },
                 None => { },
             }
 
