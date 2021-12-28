@@ -60,14 +60,14 @@ impl FeatureTrait for Gpu {
 }
 
 impl Gpu {
-    fn _adjuest_fan(&self, temp: f64) {
+    fn _adjuest_fan(&mut self, temp: f64) {
         let mut fan = "GPUTargetFanSpeed=0";
 
-        if temp < 40.                  { fan = "GPUTargetFanSpeed=0"; }
-        if temp >= 40. && temp < 50.   { fan = "GPUTargetFanSpeed=25"; }
-        if temp >= 50. && temp < 60.   { fan = "GPUTargetFanSpeed=50"; }
-        if temp >= 60. && temp < 70.   { fan = "GPUTargetFanSpeed=75"; }
-        if temp >= 70.                 { fan = "GPUTargetFanSpeed=100"; }
+        if temp < 35.                  { fan = "GPUTargetFanSpeed=0"; }
+        if temp >= 45. && temp < 55.   { fan = "GPUTargetFanSpeed=25"; }
+        if temp >= 55. && temp < 65.   { fan = "GPUTargetFanSpeed=50"; }
+        if temp >= 65. && temp < 75.   { fan = "GPUTargetFanSpeed=75"; }
+        if temp >= 75.                 { fan = "GPUTargetFanSpeed=100"; }
 
         Command::new("nvidia-settings")
             .args(&[

@@ -54,8 +54,8 @@ impl FeatureTrait for NetStats {
                                 let recv = stats.next().unwrap().parse::<u128>().unwrap();
                                 let trans = stats.skip(7).take(1).map(|n| n.parse::<u128>().unwrap()).collect::<Vec<u128>>()[0];
 
-                                let recv_stat = Byte::from_bytes(recv - prev.0).get_appropriate_unit(false);
-                                let trans_stat = Byte::from_bytes(trans - prev.1).get_appropriate_unit(false);
+                                let recv_stat = Byte::from_bytes(recv - prev.0).get_appropriate_unit(true);
+                                let trans_stat = Byte::from_bytes(trans - prev.1).get_appropriate_unit(true);
 
                                 prev_stats.insert(iface, (recv, trans));
 
