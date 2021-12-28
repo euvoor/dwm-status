@@ -69,8 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|stat| format!("{}", stat))
                 .collect();
 
+            let output = format!("▏{}▕", output.join("▕▏"));
+
             Command::new("xsetroot")
-                .args(&["-name", &output.join("▕▏")])
+                .args(&["-name", &output])
                 .output()
                 .unwrap();
 
