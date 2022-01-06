@@ -2,7 +2,7 @@
 
 # About
 
-An Asynchronous, Extendible DWM Status bar built with rust.
+Lightweight, Asynchronous and Extendible DWM Status bar built with rust.
 
 # Features
 
