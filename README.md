@@ -31,6 +31,13 @@ Memory usage displayed as percentage, helpfull and practical.
 
 Upload and Download Status.
 
+For network stats to work for you, you must update this array in `src/main.rs`
+with the list of interfaces you want to show stats for.
+
+```rust
+net_stats.set_ifaces(vec!["enp10s0", "wlx04d4c464bd3c"]);
+```
+
 ### Ping
 
 Calculate the ping, uses cloudflare public DNS by default, and switch to
