@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(DateTime::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(Ping::new(status_bar.clone(), "", Duration::from_secs(1))),
         Box::new(Memory::new(status_bar.clone(), "Mem: ", Duration::from_secs(1))),
-        Box::new(Cpu::new(status_bar.clone(), "Cpu:", Duration::from_secs(1))),
+        Box::new(Cpu::new(status_bar.clone(), "Cpu: ", Duration::from_secs(1))),
         Box::new(Gpu::new(status_bar.clone(), "Gpu: ", Duration::from_secs(1))),
     ];
 
@@ -65,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let output: Vec<String> = output.iter()
                 .rev()
-                .filter(|stat| stat.len() > 0)
-                .map(|stat| format!("{}", stat))
+                .filter(|stat| ! stat.is_empty())
+                .map(|stat| stat.to_string())
                 .collect();
 
             let output = format!("▏{}▕", output.join("▕▏"));

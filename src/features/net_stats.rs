@@ -44,7 +44,7 @@ impl FeatureTrait for NetStats {
 
             dev.split('\n')
                 .for_each(|line| {
-                    if line.contains(":") {
+                    if line.contains(':') {
                         let line = line.split_once(':').unwrap();
 
                         for iface in &self.ifaces {
@@ -73,7 +73,7 @@ impl FeatureTrait for NetStats {
                     }
                 });
 
-            if output.len() > 0 {
+            if ! output.is_empty() {
                 output = output.iter().map(|a| format!("({})", a)).collect::<Vec<String>>();
             }
 

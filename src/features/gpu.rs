@@ -64,15 +64,15 @@ impl Gpu {
         let mut fan = "GPUTargetFanSpeed=0";
 
         if temp < 35.                  { fan = "GPUTargetFanSpeed=0"; }
-        if temp >= 45. && temp < 55.   { fan = "GPUTargetFanSpeed=25"; }
-        if temp >= 55. && temp < 65.   { fan = "GPUTargetFanSpeed=50"; }
-        if temp >= 65. && temp < 75.   { fan = "GPUTargetFanSpeed=75"; }
+        if (45. ..55.).contains(&temp)  { fan = "GPUTargetFanSpeed=25"; }
+        if (55. ..65.).contains(&temp)  { fan = "GPUTargetFanSpeed=50"; }
+        if (65. ..75.).contains(&temp)  { fan = "GPUTargetFanSpeed=75"; }
         if temp >= 75.                 { fan = "GPUTargetFanSpeed=100"; }
 
         Command::new("nvidia-settings")
             .args(&[
                 "-a", "GPUFanControlState=1",
-                "-a", &fan,
+                "-a", fan,
             ])
             .output()
             .unwrap();

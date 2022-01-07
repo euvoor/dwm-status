@@ -28,7 +28,7 @@ impl FeatureTrait for DateTime {
     async fn pull(&mut self) {
         loop {
             let date_time = Utc::now();
-            let output = format!("{}{}", self.prefix, date_time.format("%e %b %X"));
+            let output = format!("{}{}", self.prefix, date_time.format("%e %b %X").to_string().trim());
 
             *self.status_bar.date_time.write().await = output;
 

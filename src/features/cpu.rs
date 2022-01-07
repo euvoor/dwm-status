@@ -43,9 +43,8 @@ impl FeatureTrait for Cpu {
                 String::from_iter(cores)
             );
 
-            match self._temperature().await {
-                Some(temp) => { output = format!("{} {}", output, temp); },
-                None => { },
+            if let Some(temp) = self._temperature().await {
+                output = format!("{} {}", output, temp);
             }
 
             *self.status_bar.cpu.write().await = output;
