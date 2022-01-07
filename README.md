@@ -95,7 +95,7 @@ impl FeatureTrait for Tor {
 
             let output = "TOR: connected";
 
-            *self.status_bar.date_time.write().await = output;
+            *self.status_bar.tor.write().await = output;
             sleep(self.idle).await;
         }
     }
@@ -105,8 +105,8 @@ impl FeatureTrait for Tor {
 Declare your module, in `src/features/mod.rs`
 
 ```rust
-pub(super) mod net_stats;
-pub(super) use net_stats::NetStats;
+pub(super) mod tor;
+pub(super) use tor::Tor;
 ```
 
 Add a new field to `src/status_bar.rs`
