@@ -68,6 +68,11 @@ impl FeatureTrait for Ping {
                     }
                 });
 
+
+            if ping.len() == 0 {
+                ping = String::from("No-Internet");
+            }
+
             let output = format!("{}{}", self.prefix, ping);
 
             *self.status_bar.ping.write().await = output;
