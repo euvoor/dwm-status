@@ -5,6 +5,7 @@ use tokio::time::{ sleep, Duration };
 use chrono::offset::Utc;
 use std::process::Command;
 use crate::StatusBar;
+use crate::config::VpnConfig;
 
 #[derive(Default, Debug)]
 pub struct VpnStatus {
@@ -16,21 +17,15 @@ pub struct VpnStatus {
 
 pub struct Vpn {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
+    config: VpnConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Vpn {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
+            config: VpnConfig::default(),
         }
     }
 
@@ -45,12 +40,12 @@ impl FeatureTrait for Vpn {
             let mut output = String::new();
 
             if is_connected.unwrap() {
-                output = String::from(self.prefix);
+                output = format!("{}", self.config.prefix);
 
                 if let Some(vpn_status) = Vpn::connected_to() {
                     output = format!(
                         "{}{}",
-                        self.prefix,
+                        self.config.prefix,
                         vpn_status.location,
                     );
                 }
@@ -58,12 +53,16 @@ impl FeatureTrait for Vpn {
 
             *self.status_bar.vpn.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
     }
 }
 
 impl Vpn {
+    pub fn set_config(&mut self, config: VpnConfig) {
+        self.config = config;
+    }
+
     pub fn is_connected() -> Option<bool> {
         match Command::new("mullvad").arg("status").output() {
             Ok(vpn) => {

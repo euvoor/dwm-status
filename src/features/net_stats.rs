@@ -8,33 +8,26 @@ use tokio::fs::read_to_string;
 use std::collections::HashMap;
 use byte_unit::Byte;
 use std::path::Path;
+use crate::config::NetStatsConfig;
 
 pub struct NetStats {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
-    ifaces: Vec<&'static str>,
+    config: NetStatsConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for NetStats {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
-            ifaces: vec![],
+            config: NetStatsConfig::default(),
         }
     }
 
     async fn pull(&mut self) {
         let mut prev_stats = HashMap::new();
 
-        for iface in &self.ifaces {
+        for iface in &self.config.ifaces {
             prev_stats.insert(iface, (0u128, 0u128));
         }
 
@@ -47,7 +40,7 @@ impl FeatureTrait for NetStats {
                     if line.contains(':') {
                         let line = line.split_once(':').unwrap();
 
-                        for iface in &self.ifaces {
+                        for iface in &self.config.ifaces {
                             if *iface == line.0.trim() {
                                 let prev = prev_stats.get(iface).unwrap();
                                 let mut stats = line.1.split_whitespace();
@@ -77,17 +70,17 @@ impl FeatureTrait for NetStats {
                 output = output.iter().map(|a| format!("({})", a)).collect::<Vec<String>>();
             }
 
-            let output = format!("{}{}", self.prefix, output.join(" "));
+            let output = format!("{}{}", self.config.prefix, output.join(" "));
 
             *self.status_bar.net_stats.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
     }
 }
 
 impl NetStats {
-    pub fn set_ifaces(&mut self, ifaces: Vec<&'static str>) {
-        self.ifaces = ifaces;
+    pub fn set_config(&mut self, config: NetStatsConfig) {
+        self.config = config;
     }
 }

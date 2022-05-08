@@ -1,0 +1,44 @@
+features:
+  - vpn
+  - date_time
+  - ping
+  - memory
+  - cpu
+  - gpu
+  - net_stats
+
+vpn:
+  prefix: ""
+  idle: 1
+
+date_time:
+  prefix: ""
+  idle: 1
+  format: "%a %d %b %Y %X %Z"
+
+ping:
+  prefix: ""
+  idle: 1
+  no_internet: "✕"
+
+memory:
+  prefix: ""
+  idle: 1
+  output: "used" # used | free | percentage
+
+cpu:
+  prefix: ""
+  idle: 1
+  chip: k10temp-pci-00c3
+  report: Tctl
+
+gpu:
+  prefix: ""
+  idle: 1
+
+net_stats:
+  prefix: ""
+  idle: 1
+  ifaces:
+    - enp10s0
+    - wlx04d4c464bd3c

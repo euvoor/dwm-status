@@ -6,30 +6,25 @@ use tokio::fs::read_to_string;
 use std::process::{ Command, Stdio };
 use std::io::prelude::*;
 use crate::StatusBar;
+use crate::config::CpuConfig;
 
 pub struct Cpu {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
     prev_total: usize,
     prev_idle: usize,
     cores: Vec<(usize, usize)>,
+    config: CpuConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Cpu {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
             prev_total: 0,
             prev_idle: 0,
             cores: vec![],
+            config: CpuConfig::default()
         }
     }
 
@@ -38,7 +33,7 @@ impl FeatureTrait for Cpu {
             let (usage, cores) = self._usage().await;
             let mut output = format!(
                 "{}{:.1}% {}",
-                self.prefix,
+                self.config.prefix,
                 usage,
                 String::from_iter(cores)
             );
@@ -47,14 +42,22 @@ impl FeatureTrait for Cpu {
                 output = format!("{} {}", output, temp);
             }
 
+            let load = self._load_avg_threads().await;
+
+            output = format!("{} {}", output, load);
+
             *self.status_bar.cpu.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
     }
 }
 
 impl Cpu {
+    pub fn set_config(&mut self, config: CpuConfig) {
+        self.config = config;
+    }
+
     async fn _temperature(&mut self) -> Option<String> {
         match Command::new("sensors")
             .output() {
@@ -81,6 +84,20 @@ impl Cpu {
                 None
             }
         }
+    }
+
+    async fn _load_avg_threads(&mut self) -> String {
+        let loadavg = read_to_string("/proc/loadavg").await.unwrap();
+
+        let mut loadavg = loadavg.split_whitespace();
+        let load = loadavg.next().unwrap();
+
+        loadavg.next().unwrap();
+        loadavg.next().unwrap();
+
+        let threads = loadavg.next().unwrap();
+
+        format!("(L: {}) (Tr: {})", load, threads)
     }
 
     async fn _usage(&mut self) -> (f64, Vec<char>) {

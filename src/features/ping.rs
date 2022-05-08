@@ -8,24 +8,19 @@ use tokio::time::{ sleep, Duration };
 use std::process::Command;
 use crate::StatusBar;
 use crate::Vpn;
+use crate::config::PingConfig;
 
 pub struct Ping {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
+    config: PingConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Ping {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
+            config: PingConfig::default(),
         }
     }
 
@@ -70,14 +65,20 @@ impl FeatureTrait for Ping {
 
 
             if ping.len() == 0 {
-                ping = String::from("No-Internet");
+                ping = self.config.no_internet.clone();
             }
 
-            let output = format!("{}{}", self.prefix, ping);
+            let output = format!("{}{}", self.config.prefix, ping);
 
             *self.status_bar.ping.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
+    }
+}
+
+impl Ping {
+    pub fn set_config(&mut self, config: PingConfig) {
+        self.config = config;
     }
 }

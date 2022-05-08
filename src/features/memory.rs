@@ -6,24 +6,19 @@ use tokio::fs::read_to_string;
 use byte_unit::Byte;
 use tokio::time::{ sleep, Duration };
 use crate::StatusBar;
+use crate::config::MemoryConfig;
 
 pub struct Memory {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
+    config: MemoryConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Memory {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
+            config: MemoryConfig::default(),
         }
     }
 
@@ -56,11 +51,17 @@ impl FeatureTrait for Memory {
 
             let buff_cache = buffers + cached;
             let used = memtotal - memfree - buff_cache;
-            let output = format!("{}{:.1}%", self.prefix, (used as f64 / memtotal as f64) * 100.0);
+            let output = format!("{}{:.1}%", self.config.prefix, (used as f64 / memtotal as f64) * 100.0);
 
             *self.status_bar.memory.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
+    }
+}
+
+impl Memory {
+    pub fn set_config(&mut self, config: MemoryConfig) {
+        self.config = config;
     }
 }

@@ -5,11 +5,7 @@ use crate::StatusBar;
 
 #[async_trait::async_trait]
 pub trait FeatureTrait {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self where Self: Sized;
+    fn new(status_bar: Arc<StatusBar>) -> Self where Self: Sized;
 
     async fn pull(&mut self);
 }

@@ -6,24 +6,19 @@ use tokio::fs::read_to_string;
 use std::process::{ Command, Stdio };
 use std::io::prelude::*;
 use crate::StatusBar;
+use crate::config::GpuConfig;
 
 pub struct Gpu {
     status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
+    config: GpuConfig,
 }
 
 #[async_trait::async_trait]
 impl FeatureTrait for Gpu {
-    fn new(
-        status_bar: Arc<StatusBar>,
-        prefix: &'static str,
-        idle: Duration,
-    ) -> Self {
+    fn new( status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            prefix,
-            idle,
+            config: GpuConfig::default(),
         }
     }
 
@@ -45,7 +40,7 @@ impl FeatureTrait for Gpu {
 
             let output = format!(
                 "{}(U: {}%) (M: {}%) (T: +{}°C) (F-RPM: {})",
-                self.prefix,
+                self.config.prefix,
                 usage.0,
                 usage.1,
                 temp,
@@ -54,12 +49,16 @@ impl FeatureTrait for Gpu {
 
             *self.status_bar.gpu.write().await = output;
 
-            sleep(self.idle).await;
+            sleep(Duration::from_secs(self.config.idle)).await;
         }
     }
 }
 
 impl Gpu {
+    pub fn set_config(&mut self, config: GpuConfig) {
+        self.config = config;
+    }
+
     fn _adjuest_fan(&mut self, temp: f64) {
         let mut fan = "GPUTargetFanSpeed=0";
 
@@ -93,7 +92,7 @@ impl Gpu {
                     .join("")
                     .split_whitespace()
                     .last()
-                    .unwrap()
+                    .unwrap_or("0")
                     .parse::<f64>()
                     .unwrap() as usize)
             },
