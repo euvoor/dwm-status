@@ -30,6 +30,7 @@ impl FeatureTrait for Vpn {
     }
 
     async fn pull(&mut self) {
+        return;
         loop {
             let is_connected = Vpn::is_connected();
 
@@ -44,9 +45,10 @@ impl FeatureTrait for Vpn {
 
                 if let Some(vpn_status) = Vpn::connected_to() {
                     output = format!(
-                        "{}{}",
+                        "{}{} {}",
                         self.config.prefix,
-                        vpn_status.location,
+                        vpn_status.relay,
+                        vpn_status.ipv4,
                     );
                 }
             }
@@ -83,26 +85,26 @@ impl Vpn {
                 let mut vpn_status = VpnStatus { ..Default::default() };
 
                 vpn.split('\n').for_each(|line| {
-                    if line.starts_with("Relay:") {
-                        vpn_status.relay = line.split_whitespace().last().unwrap().to_string();
+                    if line.starts_with("Connected to") {
+                        let mut cols = line.split_whitespace();
+                        cols.next().unwrap();
+                        cols.next().unwrap();
+
+                        vpn_status.relay = cols.next().unwrap().to_string();
+
+                        cols.next().unwrap();
+
+                        vpn_status.location = cols.next().unwrap().to_string();
+                        vpn_status.location.push_str(" ");
+                        vpn_status.location.push_str(cols.next().unwrap());
                     }
 
                     if line.starts_with("IPv4:") {
                         vpn_status.ipv4 = line.split_whitespace().last().unwrap().to_string();
                     }
 
-                    if line.starts_with("Location:") {
-                        vpn_status.location = line.split_whitespace()
-                            .skip(1)
-                            .collect::<Vec<&str>>()
-                            .join("");
-                    }
-
                     if line.starts_with("Position:") {
-                        vpn_status.position = line.split_whitespace()
-                            .skip(1)
-                            .collect::<Vec<&str>>()
-                            .join("");
+                        vpn_status.position = line.split_whitespace().last().unwrap().to_string();
                     }
                 });
 
