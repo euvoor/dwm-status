@@ -69,7 +69,7 @@ impl Vpn {
         match Command::new("mullvad").arg("status").output() {
             Ok(vpn) => {
                 let vpn = String::from_utf8(vpn.stdout).unwrap();
-                Some(! vpn.contains("Tunnel status: Disconnected"))
+                Some(! vpn.contains("Disconnected"))
             },
             Err(err) => {
                 dbg!("mullvad", err);
