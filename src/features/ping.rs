@@ -26,7 +26,7 @@ impl FeatureTrait for Ping {
 
     async fn pull(&mut self) {
         loop {
-            let mut server = "1.1.1.1".to_string();
+            let mut server = "8.8.8.8".to_string();
 
             if let Some(vpn) = Vpn::is_connected() {
                 if vpn {
