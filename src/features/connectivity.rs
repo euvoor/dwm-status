@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::config::ConnectivityConfig;
-use crate::network::{read_connectivity_snapshot, ConnectivitySnapshot};
+use crate::network::{read_connectivity_snapshot, spawn_connectivity_events, ConnectivitySnapshot};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
@@ -24,16 +24,23 @@ impl FeatureTrait for Connectivity {
 
     /// Publish passive link state.
     async fn pull(&mut self) {
+        let events = spawn_connectivity_events().ok();
+        let mut refresh = interval(Duration::from_secs(self.config.idle.max(1)));
+        refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        self._publish_snapshot().await;
+
         loop {
-            let output = match read_connectivity_snapshot().await {
-                Ok(snapshot) => self._format_output(&snapshot),
-                Err(_) => format!("{}no-net", self.config.prefix),
-            };
+            if let Some(events) = &events {
+                tokio::select! {
+                    _ = events.notified() => {}
+                    _ = refresh.tick() => {}
+                }
+            } else {
+                refresh.tick().await;
+            }
 
-            *self.status_bar.connectivity.write().await = output;
-            self.status_bar.redraw.notify_one();
-
-            sleep(Duration::from_secs(self.config.idle)).await;
+            self._publish_snapshot().await;
         }
     }
 }
@@ -42,6 +49,17 @@ impl Connectivity {
     /// Swap feature settings.
     pub fn set_config(&mut self, config: ConnectivityConfig) {
         self.config = config;
+    }
+
+    /// Push the latest passive snapshot into the shared slot.
+    async fn _publish_snapshot(&self) {
+        let output = match read_connectivity_snapshot().await {
+            Ok(snapshot) => self._format_output(&snapshot),
+            Err(_) => format!("{}no-net", self.config.prefix),
+        };
+
+        *self.status_bar.connectivity.write().await = output;
+        self.status_bar.redraw.notify_one();
     }
 
     /// Select the configured layout.

@@ -13,3 +13,5 @@ byte-unit = "5.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.0.7"
 x11rb = "0.13.2"
+futures-util = "0.3.31"
+rtnetlink = "0.20.0"

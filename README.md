@@ -155,6 +155,7 @@ So if two features emit `A` and `B`, the root name becomes:
 That reversal is current behavior, not documentation drift.
 
 The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
+`connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
 
 ## Symbol reference
 
@@ -216,6 +217,8 @@ This is the privacy-first network feature.
 - It does not ping anything.
 - It does not talk to third-party hosts.
 - It reports local state only.
+- It wakes on kernel route, address, and link changes when netlink is available.
+- `idle` is the fallback resync interval for DNS changes and missed events.
 - It picks a primary interface from the default route when possible.
 - Tunnel detection is generic and based on interface naming patterns such as `wg*`, `tun*`, `tap*`, `ppp*`, `tailscale*`, and `zt*`.
 
