@@ -5,7 +5,7 @@ use crate::StatusBar;
 use byte_unit::{Byte, UnitType};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration};
 
 pub struct NetStats {
     status_bar: Arc<StatusBar>,
@@ -25,6 +25,7 @@ impl FeatureTrait for NetStats {
     /// Refresh interface deltas.
     async fn pull(&mut self) {
         let mut prev_stats = HashMap::new();
+        let mut interval = interval(Duration::from_secs(self.config.idle));
 
         loop {
             let dev = match read_dev_stats().await {
@@ -32,7 +33,7 @@ impl FeatureTrait for NetStats {
                 Err(_) => {
                     *self.status_bar.net_stats.write().await = String::new();
                     self.status_bar.redraw.notify_one();
-                    sleep(Duration::from_secs(self.config.idle)).await;
+                    interval.tick().await;
                     continue;
                 }
             };
@@ -73,7 +74,7 @@ impl FeatureTrait for NetStats {
             *self.status_bar.net_stats.write().await = output;
             self.status_bar.redraw.notify_one();
 
-            sleep(Duration::from_secs(self.config.idle)).await;
+            interval.tick().await;
         }
     }
 }

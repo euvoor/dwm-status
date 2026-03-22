@@ -4,7 +4,7 @@ use crate::StatusBar;
 use byte_unit::{Byte, UnitType};
 use std::sync::Arc;
 use tokio::fs::read_to_string;
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration};
 
 pub struct Memory {
     status_bar: Arc<StatusBar>,
@@ -23,6 +23,8 @@ impl FeatureTrait for Memory {
 
     /// Refresh memory usage.
     async fn pull(&mut self) {
+        let mut interval = interval(Duration::from_secs(self.config.idle));
+
         loop {
             let _parse_number_fn = |line: &str| -> u128 {
                 let mut line = line.split(':');
@@ -85,7 +87,7 @@ impl FeatureTrait for Memory {
             *self.status_bar.memory.write().await = output;
             self.status_bar.redraw.notify_one();
 
-            sleep(Duration::from_secs(self.config.idle)).await;
+            interval.tick().await;
         }
     }
 }

@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tokio::fs::read_to_string;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration};
 
 pub struct Gpu {
     status_bar: Arc<StatusBar>,
@@ -25,6 +25,8 @@ impl FeatureTrait for Gpu {
 
     /// Refresh GPU telemetry and fan state.
     async fn pull(&mut self) {
+        let mut interval = interval(Duration::from_secs(self.config.idle));
+
         loop {
             let usage = self._usage();
             if usage.is_none() {
@@ -54,7 +56,7 @@ impl FeatureTrait for Gpu {
             *self.status_bar.gpu.write().await = output;
             self.status_bar.redraw.notify_one();
 
-            sleep(Duration::from_secs(self.config.idle)).await;
+            interval.tick().await;
         }
     }
 }

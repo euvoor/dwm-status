@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tokio::fs::read_to_string;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration};
 
 pub struct Cpu {
     status_bar: Arc<StatusBar>,
@@ -31,6 +31,8 @@ impl FeatureTrait for Cpu {
 
     /// Refresh load and temperature.
     async fn pull(&mut self) {
+        let mut interval = interval(Duration::from_secs(self.config.idle));
+
         loop {
             let (usage, cores) = self._usage().await;
             let mut output = format!(
@@ -51,7 +53,7 @@ impl FeatureTrait for Cpu {
             *self.status_bar.cpu.write().await = output;
             self.status_bar.redraw.notify_one();
 
-            sleep(Duration::from_secs(self.config.idle)).await;
+            interval.tick().await;
         }
     }
 }

@@ -27,6 +27,8 @@ The current tree is Linux/X11-specific. That is intentional.
 
 Rendering is event-driven. Features publish their own updates, and the root name is only rewritten when the final bar string changes.
 
+Periodic sampler features now run on a fixed cadence instead of `work + sleep` drift.
+
 ## Install
 
 Build it:

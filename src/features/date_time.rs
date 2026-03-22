@@ -4,7 +4,7 @@ use crate::StatusBar;
 use chrono::offset::Utc;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use tokio::time::{sleep, Duration};
+use tokio::time::{interval, Duration};
 
 pub struct DateTime {
     status_bar: Arc<StatusBar>,
@@ -23,6 +23,8 @@ impl FeatureTrait for DateTime {
 
     /// Refresh the wall clock.
     async fn pull(&mut self) {
+        let mut interval = interval(Duration::from_secs(self.config.idle));
+
         loop {
             let date_time = Utc::now();
             let output = format!(
@@ -37,7 +39,7 @@ impl FeatureTrait for DateTime {
             *self.status_bar.date_time.write().await = output;
             self.status_bar.redraw.notify_one();
 
-            sleep(Duration::from_secs(self.config.idle)).await;
+            interval.tick().await;
         }
     }
 }
