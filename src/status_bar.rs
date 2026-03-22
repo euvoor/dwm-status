@@ -7,7 +7,7 @@ pub struct StatusBar {
     pub clock: RwLock<String>,
     pub cpu: RwLock<String>,
     pub gpu: RwLock<String>,
-    pub memory: RwLock<String>,
+    pub ram: RwLock<String>,
     pub net_stats: RwLock<String>,
 }
 

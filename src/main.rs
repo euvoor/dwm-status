@@ -17,7 +17,7 @@ use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
-use features::{Clock, Connectivity, Cpu, Gpu, Memory, NetStats};
+use features::{Clock, Connectivity, Cpu, Gpu, NetStats, Ram};
 
 /// Keep startup flags in one place.
 struct CliArgs {
@@ -154,7 +154,7 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
             "net_stats" => output.push(status_bar.net_stats.read().await.to_string()),
             "cpu" => output.push(status_bar.cpu.read().await.to_string()),
             "clock" => output.push(status_bar.clock.read().await.to_string()),
-            "memory" => output.push(status_bar.memory.read().await.to_string()),
+            "ram" => output.push(status_bar.ram.read().await.to_string()),
             "gpu" => output.push(status_bar.gpu.read().await.to_string()),
             name => unimplemented!("Unsupported feature: {}", name),
         };
@@ -224,10 +224,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 resources.push(Box::new(clock));
             }
-            "memory" => {
-                let mut memory = Memory::new(status_bar.clone());
-                memory.set_config(config.memory.clone());
-                resources.push(Box::new(memory));
+            "ram" => {
+                let mut ram = Ram::new(status_bar.clone());
+                ram.set_config(config.ram.clone());
+                resources.push(Box::new(ram));
             }
             "gpu" => {
                 let mut gpu = Gpu::new(status_bar.clone());

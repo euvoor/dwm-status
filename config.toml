@@ -1,7 +1,7 @@
 features = [
   "clock",
   "connectivity",
-  "memory",
+  "ram",
   "cpu",
   "gpu",
   "net_stats",
@@ -16,10 +16,8 @@ show_route = true
 show_dns = true
 show_kind = true
 
-[memory]
-glyph = ""
-idle = 1
-output = "used"
+[ram]
+glyph = "󰍛 "
 
 [clock]
 glyph = " "

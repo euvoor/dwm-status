@@ -8,8 +8,8 @@ pub(super) use connectivity::Connectivity;
 pub(super) mod clock;
 pub(super) use clock::Clock;
 
-pub(super) mod memory;
-pub(super) use memory::Memory;
+pub(super) mod ram;
+pub(super) use ram::Ram;
 
 pub(super) mod cpu;
 pub(super) use cpu::Cpu;

@@ -18,7 +18,7 @@ The current tree is Linux/X11-specific. That is intentional.
 
 - `connectivity`
 - `clock`
-- `memory`
+- `ram`
 - `cpu`
 - `gpu`
 - `net_stats`
@@ -101,7 +101,7 @@ Example:
 features = [
   "connectivity",
   "clock",
-  "memory",
+  "ram",
   "cpu",
   "gpu",
   "net_stats",
@@ -121,10 +121,8 @@ glyph = " "
 format = "%a %d %b %Y %X %Z"
 timezone = ""
 
-[memory]
-glyph = ""
-idle = 1
-output = "used"
+[ram]
+glyph = "󰍛 "
 
 [cpu]
 glyph = ""
@@ -161,7 +159,13 @@ The renderer itself is no longer on a fixed one-second loop. Redraws happen when
 `connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
 
 The sample `clock` and `connectivity` glyphs assume a Nerd Font-capable status font.
-If your bar font does not carry them, replace them or set `glyph = ""`.
+For `dwm`, a matching line in `config.h` is:
+
+```c
+static const char *fonts[] = { "FiraCode Nerd Font Mono:style=Regular:size=10" };
+```
+
+If your bar font still does not carry them, replace them or set `glyph = ""`.
 
 ## Symbol reference
 
@@ -241,9 +245,11 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 - Refresh cadence comes from the format itself.
 - Second-based formats wake every second, minute-only formats wake every minute, and date-only formats wake at the next midnight in the selected timezone.
 
-### `memory`
+### `ram`
 
-- `output` supports `used`, `free`, or `percentage`.
+- Renders `used · used%` as one compact line.
+- The sample config uses `󰍛 ` as its glyph.
+- Uses a fixed internal cadence instead of a config knob.
 - Values come from `/proc/meminfo`.
 
 ### `cpu`

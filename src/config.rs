@@ -6,7 +6,7 @@ pub struct Config {
     pub features: Vec<String>,
     pub connectivity: ConnectivityConfig,
     pub clock: ClockConfig,
-    pub memory: MemoryConfig,
+    pub ram: RamConfig,
     pub cpu: CpuConfig,
     pub gpu: GpuConfig,
     pub net_stats: NetStatsConfig,
@@ -60,19 +60,15 @@ impl Default for ClockConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
-pub struct MemoryConfig {
+pub struct RamConfig {
     pub glyph: String,
-    pub idle: u64,
-    pub output: String,
 }
 
-impl Default for MemoryConfig {
-    /// Default memory reporting settings.
+impl Default for RamConfig {
+    /// Default RAM reporting settings.
     fn default() -> Self {
         Self {
             glyph: String::new(),
-            idle: 1,
-            output: "percentage".to_string(),
         }
     }
 }
