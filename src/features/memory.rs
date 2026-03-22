@@ -75,11 +75,11 @@ impl FeatureTrait for Memory {
             let buff_cache = buffers + cached;
             let used = memtotal - memfree - buff_cache;
             let output = match self.config.output.as_str() {
-                "used" => format!("{}{}", self.config.prefix, format_bytes(used)),
-                "free" => format!("{}{}", self.config.prefix, format_bytes(memavailable)),
+                "used" => format!("{}{}", self.config.glyph, format_bytes(used)),
+                "free" => format!("{}{}", self.config.glyph, format_bytes(memavailable)),
                 _ => format!(
                     "{}{:.1}%",
-                    self.config.prefix,
+                    self.config.glyph,
                     (used as f64 / memtotal as f64) * 100.0
                 ),
             };

@@ -37,7 +37,7 @@ impl FeatureTrait for Cpu {
             let (usage, cores) = self._usage().await;
             let mut output = format!(
                 "{}{:.1}% {}",
-                self.config.prefix,
+                self.config.glyph,
                 usage,
                 String::from_iter(cores)
             );

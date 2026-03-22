@@ -17,7 +17,7 @@ use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
-use features::{Connectivity, Cpu, DateTime, Gpu, Memory, NetStats};
+use features::{Clock, Connectivity, Cpu, Gpu, Memory, NetStats};
 
 /// Keep startup flags in one place.
 struct CliArgs {
@@ -153,7 +153,7 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
             "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
             "net_stats" => output.push(status_bar.net_stats.read().await.to_string()),
             "cpu" => output.push(status_bar.cpu.read().await.to_string()),
-            "date_time" => output.push(status_bar.date_time.read().await.to_string()),
+            "clock" => output.push(status_bar.clock.read().await.to_string()),
             "memory" => output.push(status_bar.memory.read().await.to_string()),
             "gpu" => output.push(status_bar.gpu.read().await.to_string()),
             name => unimplemented!("Unsupported feature: {}", name),
@@ -216,10 +216,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cpu.set_config(config.cpu.clone());
                 resources.push(Box::new(cpu));
             }
-            "date_time" => {
-                let mut date_time = DateTime::new(status_bar.clone());
-                date_time.set_config(config.date_time.clone());
-                resources.push(Box::new(date_time));
+            "clock" => {
+                let mut clock = Clock::new(status_bar.clone());
+                if let Err(err) = clock.set_config(config.clock.clone()) {
+                    eprintln!("{err}");
+                    return Ok(());
+                }
+                resources.push(Box::new(clock));
             }
             "memory" => {
                 let mut memory = Memory::new(status_bar.clone());

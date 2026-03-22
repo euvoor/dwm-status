@@ -50,7 +50,7 @@ impl FeatureTrait for Gpu {
 
             let output = format!(
                 "{}(U: {}%) (M: {}%) (T: +{}°C) (F-RPM: {})",
-                self.config.prefix, usage.0, usage.1, temp, fan_rpm,
+                self.config.glyph, usage.0, usage.1, temp, fan_rpm,
             );
 
             *self.status_bar.gpu.write().await = output;

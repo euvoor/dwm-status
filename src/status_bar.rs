@@ -4,8 +4,8 @@ use tokio::sync::{Notify, RwLock};
 pub struct StatusBar {
     pub redraw: Notify,
     pub connectivity: RwLock<String>,
+    pub clock: RwLock<String>,
     pub cpu: RwLock<String>,
-    pub date_time: RwLock<String>,
     pub gpu: RwLock<String>,
     pub memory: RwLock<String>,
     pub net_stats: RwLock<String>,

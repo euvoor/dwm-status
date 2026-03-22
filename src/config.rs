@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub struct Config {
     pub features: Vec<String>,
     pub connectivity: ConnectivityConfig,
-    pub date_time: DateTimeConfig,
+    pub clock: ClockConfig,
     pub memory: MemoryConfig,
     pub cpu: CpuConfig,
     pub gpu: GpuConfig,
@@ -15,7 +15,7 @@ pub struct Config {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct ConnectivityConfig {
-    pub prefix: String,
+    pub glyph: String,
     pub idle: u64,
     pub format: String,
     pub show_iface: bool,
@@ -25,9 +25,10 @@ pub struct ConnectivityConfig {
 }
 
 impl Default for ConnectivityConfig {
+    /// Default passive connectivity settings.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
+            glyph: String::new(),
             idle: 1,
             format: "compact".to_string(),
             show_iface: true,
@@ -40,18 +41,19 @@ impl Default for ConnectivityConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
-pub struct DateTimeConfig {
-    pub prefix: String,
-    pub idle: u64,
+pub struct ClockConfig {
+    pub glyph: String,
     pub format: String,
+    pub timezone: String,
 }
 
-impl Default for DateTimeConfig {
+impl Default for ClockConfig {
+    /// Default clock formatting.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
-            idle: 1,
+            glyph: String::new(),
             format: "%a %d %b %Y %X %Z".to_string(),
+            timezone: String::new(),
         }
     }
 }
@@ -59,15 +61,16 @@ impl Default for DateTimeConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
-    pub prefix: String,
+    pub glyph: String,
     pub idle: u64,
     pub output: String,
 }
 
 impl Default for MemoryConfig {
+    /// Default memory reporting settings.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
+            glyph: String::new(),
             idle: 1,
             output: "percentage".to_string(),
         }
@@ -77,16 +80,17 @@ impl Default for MemoryConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct CpuConfig {
-    pub prefix: String,
+    pub glyph: String,
     pub idle: u64,
     pub chip: String,
     pub report: String,
 }
 
 impl Default for CpuConfig {
+    /// Default CPU reporting settings.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
+            glyph: String::new(),
             idle: 1,
             chip: String::new(),
             report: String::new(),
@@ -97,14 +101,15 @@ impl Default for CpuConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct GpuConfig {
-    pub prefix: String,
+    pub glyph: String,
     pub idle: u64,
 }
 
 impl Default for GpuConfig {
+    /// Default GPU reporting settings.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
+            glyph: String::new(),
             idle: 1,
         }
     }
@@ -113,17 +118,59 @@ impl Default for GpuConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
 pub struct NetStatsConfig {
-    pub prefix: String,
+    pub glyph: String,
     pub idle: u64,
     pub ifaces: Vec<String>,
 }
 
 impl Default for NetStatsConfig {
+    /// Default traffic reporting settings.
     fn default() -> Self {
         Self {
-            prefix: String::new(),
+            glyph: String::new(),
             idle: 1,
             ifaces: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    /// Parse a named timezone from clock config.
+    #[test]
+    fn parse_clock_config() {
+        let config = toml::from_str::<Config>(
+            r#"
+features = ["clock"]
+
+[clock]
+glyph = "clk "
+format = "%H:%M"
+timezone = "Europe/Berlin"
+"#,
+        ).unwrap();
+
+        assert_eq!(config.features, vec!["clock"]);
+        assert_eq!(config.clock.glyph, "clk ");
+        assert_eq!(config.clock.format, "%H:%M");
+        assert_eq!(config.clock.timezone, "Europe/Berlin");
+    }
+
+    /// Default an empty timezone string to local machine time.
+    #[test]
+    fn default_clock_timezone_is_empty() {
+        let config = toml::from_str::<Config>(
+            r#"
+features = ["clock"]
+
+[clock]
+glyph = "clk "
+format = "%H:%M"
+"#,
+        ).unwrap();
+
+        assert_eq!(config.clock.timezone, "");
     }
 }

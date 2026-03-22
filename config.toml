@@ -1,5 +1,5 @@
 features = [
-  "date_time",
+  "clock",
   "connectivity",
   "memory",
   "cpu",
@@ -8,7 +8,7 @@ features = [
 ]
 
 [connectivity]
-prefix = ""
+glyph = "󰖩 "
 idle = 1
 format = "compact"
 show_iface = true
@@ -17,27 +17,27 @@ show_dns = true
 show_kind = true
 
 [memory]
-prefix = ""
+glyph = ""
 idle = 1
 output = "used"
 
-[date_time]
-prefix = ""
-idle = 1
+[clock]
+glyph = " "
 format = "%a %d %b %Y %X %Z"
+timezone = ""
 
 [cpu]
-prefix = ""
+glyph = ""
 idle = 1
 chip = "k10temp-pci-00c3"
 report = "Tctl"
 
 [gpu]
-prefix = ""
+glyph = ""
 idle = 1
 
 [net_stats]
-prefix = ""
+glyph = ""
 idle = 1
 ifaces = [
   "enp10s0",

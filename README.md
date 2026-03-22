@@ -17,7 +17,7 @@ The current tree is Linux/X11-specific. That is intentional.
 ## Current feature set
 
 - `connectivity`
-- `date_time`
+- `clock`
 - `memory`
 - `cpu`
 - `gpu`
@@ -100,7 +100,7 @@ Example:
 # Current code renders the final bar in reverse feature order.
 features = [
   "connectivity",
-  "date_time",
+  "clock",
   "memory",
   "cpu",
   "gpu",
@@ -108,7 +108,7 @@ features = [
 ]
 
 [connectivity]
-prefix = ""
+glyph = "󰖩 "
 idle = 1
 format = "compact"
 show_iface = true
@@ -116,28 +116,28 @@ show_route = true
 show_dns = true
 show_kind = true
 
-[date_time]
-prefix = ""
-idle = 1
+[clock]
+glyph = " "
 format = "%a %d %b %Y %X %Z"
+timezone = ""
 
 [memory]
-prefix = ""
+glyph = ""
 idle = 1
 output = "used"
 
 [cpu]
-prefix = ""
+glyph = ""
 idle = 1
 chip = "k10temp-pci-00c3"
 report = "Tctl"
 
 [gpu]
-prefix = ""
+glyph = ""
 idle = 1
 
 [net_stats]
-prefix = ""
+glyph = ""
 idle = 1
 ifaces = [
   "enp10s0",
@@ -159,6 +159,9 @@ That reversal is current behavior, not documentation drift.
 
 The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
 `connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
+
+The sample `clock` and `connectivity` glyphs assume a Nerd Font-capable status font.
+If your bar font does not carry them, replace them or set `glyph = ""`.
 
 ## Symbol reference
 
@@ -220,6 +223,7 @@ This is the privacy-first network feature.
 - It does not ping anything.
 - It does not talk to third-party hosts.
 - It reports local state only.
+- The sample config uses `󰖩 ` as its glyph.
 - It wakes on kernel route, address, and link changes when netlink is available.
 - `idle` is the fallback resync interval for DNS changes and missed events.
 - It picks a primary interface from the default route when possible.
@@ -227,10 +231,15 @@ This is the privacy-first network feature.
 
 Use it as an honest local indicator, not as proof that the wider Internet is reachable.
 
-### `date_time`
+### `clock`
 
 - Uses `chrono` formatting.
-- Current code uses `UTC`, not local time.
+- The sample config uses ` ` as its glyph.
+- Defaults to the machine's local time.
+- `timezone = ""` uses the machine's local timezone.
+- Any non-empty `timezone` must be a named zone such as `Europe/Berlin` or `UTC`.
+- Refresh cadence comes from the format itself.
+- Second-based formats wake every second, minute-only formats wake every minute, and date-only formats wake at the next midnight in the selected timezone.
 
 ### `memory`
 

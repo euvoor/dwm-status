@@ -5,8 +5,8 @@ pub(super) use feature_trait::FeatureTrait;
 pub(super) mod connectivity;
 pub(super) use connectivity::Connectivity;
 
-pub(super) mod date_time;
-pub(super) use date_time::DateTime;
+pub(super) mod clock;
+pub(super) use clock::Clock;
 
 pub(super) mod memory;
 pub(super) use memory::Memory;

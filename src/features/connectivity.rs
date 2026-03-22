@@ -55,7 +55,7 @@ impl Connectivity {
     async fn _publish_snapshot(&self) {
         let output = match read_connectivity_snapshot().await {
             Ok(snapshot) => self._format_output(&snapshot),
-            Err(_) => format!("{}no-net", self.config.prefix),
+            Err(_) => format!("{}no-net", self.config.glyph),
         };
 
         *self.status_bar.connectivity.write().await = output;
@@ -69,7 +69,7 @@ impl Connectivity {
             _ => self._to_compact_output(snapshot),
         };
 
-        format!("{}{}", self.config.prefix, output)
+        format!("{}{}", self.config.glyph, output)
     }
 
     /// Dense tokens for a narrow bar.

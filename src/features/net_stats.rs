@@ -69,7 +69,7 @@ impl FeatureTrait for NetStats {
                     .collect::<Vec<String>>();
             }
 
-            let output = format!("{}{}", self.config.prefix, output.join(" "));
+            let output = format!("{}{}", self.config.glyph, output.join(" "));
 
             *self.status_bar.net_stats.write().await = output;
             self.status_bar.redraw.notify_one();
