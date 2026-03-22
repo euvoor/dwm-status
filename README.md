@@ -37,22 +37,12 @@ Build it:
 cargo build --release
 ```
 
-The binary currently reads `config.toml` from its working directory, so install the binary and the config together.
-
 One straightforward setup:
 
 ```bash
-install -d ~/.local/lib/dwm_status ~/.local/bin
-install -m755 target/release/dwm_status ~/.local/lib/dwm_status/dwm_status
-install -m644 config.toml ~/.local/lib/dwm_status/config.toml
-
-cat > ~/.local/bin/dwm_status <<'EOF'
-#!/usr/bin/env bash
-cd "$HOME/.local/lib/dwm_status" || exit 1
-exec ./dwm_status
-EOF
-
-chmod +x ~/.local/bin/dwm_status
+install -d ~/.local/bin ~/.config/dwm_status
+install -m755 target/release/dwm_status ~/.local/bin/dwm_status
+install -m644 config.toml ~/.config/dwm_status/config.toml
 ```
 
 Then start it from your `dwm` session:
@@ -69,7 +59,14 @@ Typical place:
 exec dwm
 ```
 
-If `config.toml` is missing or invalid, the process prints an error and exits.
+Config lookup order is:
+
+1. `--config /path/to/config.toml`
+2. `$XDG_CONFIG_HOME/dwm_status/config.toml`
+3. `~/.config/dwm_status/config.toml`
+4. `./config.toml`
+
+If the selected config is missing or invalid, the process prints an error and exits.
 
 ## Runtime dependencies
 
@@ -90,6 +87,12 @@ No external renderer command is required now. The binary talks to X directly.
 ## Config
 
 Config is TOML. Keep a full file, comment out what you do not need, and keep going.
+
+You can point to a specific file with:
+
+```bash
+dwm_status --config /path/to/config.toml
+```
 
 Example:
 
