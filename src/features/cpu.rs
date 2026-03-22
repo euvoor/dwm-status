@@ -18,6 +18,7 @@ pub struct Cpu {
 
 #[async_trait::async_trait]
 impl FeatureTrait for Cpu {
+    /// Default CPU state.
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
@@ -28,6 +29,7 @@ impl FeatureTrait for Cpu {
         }
     }
 
+    /// Refresh load and temperature.
     async fn pull(&mut self) {
         loop {
             let (usage, cores) = self._usage().await;
@@ -47,6 +49,7 @@ impl FeatureTrait for Cpu {
             output = format!("{} {}", output, load);
 
             *self.status_bar.cpu.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }
@@ -54,10 +57,12 @@ impl FeatureTrait for Cpu {
 }
 
 impl Cpu {
+    /// Swap feature settings.
     pub fn set_config(&mut self, config: CpuConfig) {
         self.config = config;
     }
 
+    /// Parse the composite sensor line.
     async fn _temperature(&mut self) -> Option<String> {
         match Command::new("sensors").output() {
             Ok(sensors) => {
@@ -88,6 +93,7 @@ impl Cpu {
         }
     }
 
+    /// Read load average and thread counts.
     async fn _load_avg_threads(&mut self) -> String {
         let loadavg = read_to_string("/proc/loadavg").await.unwrap();
 
@@ -102,6 +108,7 @@ impl Cpu {
         format!("(L: {}) (Tr: {})", load, threads)
     }
 
+    /// Sample total and per-core usage.
     async fn _usage(&mut self) -> (f64, Vec<char>) {
         let procstat = read_to_string("/proc/stat").await.unwrap();
         let mut usage = 0.0;

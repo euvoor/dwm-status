@@ -31,6 +31,7 @@ impl FeatureTrait for Connectivity {
             };
 
             *self.status_bar.connectivity.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }

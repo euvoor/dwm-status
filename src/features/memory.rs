@@ -13,6 +13,7 @@ pub struct Memory {
 
 #[async_trait::async_trait]
 impl FeatureTrait for Memory {
+    /// Default memory state.
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
@@ -20,6 +21,7 @@ impl FeatureTrait for Memory {
         }
     }
 
+    /// Refresh memory usage.
     async fn pull(&mut self) {
         loop {
             let _parse_number_fn = |line: &str| -> u128 {
@@ -81,6 +83,7 @@ impl FeatureTrait for Memory {
             };
 
             *self.status_bar.memory.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }
@@ -88,6 +91,7 @@ impl FeatureTrait for Memory {
 }
 
 impl Memory {
+    /// Swap feature settings.
     pub fn set_config(&mut self, config: MemoryConfig) {
         self.config = config;
     }

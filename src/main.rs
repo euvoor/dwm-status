@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
-use tokio::time::{sleep, Duration};
 
 use config::Config;
 use features::FeatureTrait;
@@ -19,6 +18,7 @@ use status_bar::StatusBar;
 
 use features::{Connectivity, Cpu, DateTime, Gpu, Memory, NetStats};
 
+/// Read the working config.
 fn load_config() -> Result<Config, String> {
     let config_path = "config.toml";
     let config = read_to_string(config_path)
@@ -27,7 +27,44 @@ fn load_config() -> Result<Config, String> {
     toml::from_str::<Config>(&config).map_err(|err| format!("Error in {config_path}: {err}"))
 }
 
+/// Build the root-window payload.
+async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
+    let mut output: Vec<String> = vec![];
+
+    for feature in &config.features {
+        match feature.as_str() {
+            "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
+            "net_stats" => output.push(status_bar.net_stats.read().await.to_string()),
+            "cpu" => output.push(status_bar.cpu.read().await.to_string()),
+            "date_time" => output.push(status_bar.date_time.read().await.to_string()),
+            "memory" => output.push(status_bar.memory.read().await.to_string()),
+            "gpu" => output.push(status_bar.gpu.read().await.to_string()),
+            name => unimplemented!("Unsupported feature: {}", name),
+        };
+    }
+
+    let output: Vec<String> = output
+        .iter()
+        .rev()
+        .filter(|stat| !stat.is_empty())
+        .map(|stat| stat.to_string())
+        .collect();
+
+    format!("▏{}▕", output.join("▕▏"))
+}
+
+/// Push the current line through xsetroot.
+fn _set_root_name(output: &str) -> Result<(), String> {
+    Command::new("xsetroot")
+        .args(["-name", output])
+        .output()
+        .map_err(|err| format!("Failed to run xsetroot: {err}"))?;
+
+    Ok(())
+}
+
 #[tokio::main]
+/// Start workers and the renderer.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = match load_config() {
         Ok(config) => config,
@@ -83,41 +120,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     }
 
-    let status_bar = status_bar.clone();
+    let render_status_bar = status_bar.clone();
 
     tokio::spawn(async move {
-        loop {
-            let mut output: Vec<String> = vec![];
+        let mut last_output = String::new();
 
-            for feature in &config.features {
-                match feature.as_str() {
-                    "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
-                    "net_stats" => output.push(status_bar.net_stats.read().await.to_string()),
-                    "cpu" => output.push(status_bar.cpu.read().await.to_string()),
-                    "date_time" => output.push(status_bar.date_time.read().await.to_string()),
-                    "memory" => output.push(status_bar.memory.read().await.to_string()),
-                    "gpu" => output.push(status_bar.gpu.read().await.to_string()),
-                    name => unimplemented!("Unsupported feature: {}", name),
-                };
+        loop {
+            render_status_bar.redraw.notified().await;
+
+            let output = _build_output(render_status_bar.as_ref(), &config).await;
+
+            if output == last_output {
+                continue;
             }
 
-            let output: Vec<String> = output
-                .iter()
-                .rev()
-                .filter(|stat| !stat.is_empty())
-                .map(|stat| stat.to_string())
-                .collect();
-
-            let output = format!("▏{}▕", output.join("▕▏"));
-
-            Command::new("xsetroot")
-                .args(["-name", &output])
-                .output()
-                .unwrap();
-
-            sleep(Duration::from_secs(1)).await;
+            match _set_root_name(&output) {
+                Ok(_) => last_output = output,
+                Err(err) => eprintln!("{err}"),
+            }
         }
     });
+
+    status_bar.redraw.notify_one();
 
     join_all(futures).await;
 

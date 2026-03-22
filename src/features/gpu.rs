@@ -15,6 +15,7 @@ pub struct Gpu {
 
 #[async_trait::async_trait]
 impl FeatureTrait for Gpu {
+    /// Default GPU state.
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
@@ -22,6 +23,7 @@ impl FeatureTrait for Gpu {
         }
     }
 
+    /// Refresh GPU telemetry and fan state.
     async fn pull(&mut self) {
         loop {
             let usage = self._usage();
@@ -50,6 +52,7 @@ impl FeatureTrait for Gpu {
             );
 
             *self.status_bar.gpu.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }
@@ -57,10 +60,12 @@ impl FeatureTrait for Gpu {
 }
 
 impl Gpu {
+    /// Swap feature settings.
     pub fn set_config(&mut self, config: GpuConfig) {
         self.config = config;
     }
 
+    /// Push the fan target for the current temperature.
     fn _adjuest_fan(&mut self, temp: f64) {
         let mut fan = "GPUTargetFanSpeed=0";
 
@@ -86,6 +91,7 @@ impl Gpu {
             .unwrap();
     }
 
+    /// Read the reported fan rpm.
     fn _fan_rpm(&self) -> Option<usize> {
         match Command::new("nvidia-settings")
             .args(&["-q", "GPUCurrentFanSpeedRPM"])
@@ -115,6 +121,7 @@ impl Gpu {
         }
     }
 
+    /// Read the current GPU temperature.
     fn _temperature(&self) -> Option<f64> {
         match Command::new("nvidia-smi")
             .arg("-q")
@@ -143,6 +150,7 @@ impl Gpu {
         }
     }
 
+    /// Read utilization from nvidia-smi.
     fn _usage(&self) -> Option<(f64, f64)> {
         match Command::new("nvidia-smi")
             .arg("-q")
@@ -174,6 +182,7 @@ impl Gpu {
         }
     }
 
+    /// Parse a numeric field from command output.
     fn _parse_value_fn(&self, line: &str, skip: usize) -> f64 {
         let value: Vec<f64> = line
             .split_whitespace()

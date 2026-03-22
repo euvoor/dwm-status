@@ -13,6 +13,7 @@ pub struct DateTime {
 
 #[async_trait::async_trait]
 impl FeatureTrait for DateTime {
+    /// Default clock state.
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
@@ -20,6 +21,7 @@ impl FeatureTrait for DateTime {
         }
     }
 
+    /// Refresh the wall clock.
     async fn pull(&mut self) {
         loop {
             let date_time = Utc::now();
@@ -33,6 +35,7 @@ impl FeatureTrait for DateTime {
             );
 
             *self.status_bar.date_time.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }
@@ -40,6 +43,7 @@ impl FeatureTrait for DateTime {
 }
 
 impl DateTime {
+    /// Swap feature settings.
     pub fn set_config(&mut self, config: DateTimeConfig) {
         self.config = config;
     }

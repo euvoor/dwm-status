@@ -14,6 +14,7 @@ pub struct NetStats {
 
 #[async_trait::async_trait]
 impl FeatureTrait for NetStats {
+    /// Default traffic state.
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
@@ -21,6 +22,7 @@ impl FeatureTrait for NetStats {
         }
     }
 
+    /// Refresh interface deltas.
     async fn pull(&mut self) {
         let mut prev_stats = HashMap::new();
 
@@ -29,6 +31,7 @@ impl FeatureTrait for NetStats {
                 Ok(dev) => dev,
                 Err(_) => {
                     *self.status_bar.net_stats.write().await = String::new();
+                    self.status_bar.redraw.notify_one();
                     sleep(Duration::from_secs(self.config.idle)).await;
                     continue;
                 }
@@ -68,6 +71,7 @@ impl FeatureTrait for NetStats {
             let output = format!("{}{}", self.config.prefix, output.join(" "));
 
             *self.status_bar.net_stats.write().await = output;
+            self.status_bar.redraw.notify_one();
 
             sleep(Duration::from_secs(self.config.idle)).await;
         }
@@ -75,6 +79,7 @@ impl FeatureTrait for NetStats {
 }
 
 impl NetStats {
+    /// Swap feature settings.
     pub fn set_config(&mut self, config: NetStatsConfig) {
         self.config = config;
     }

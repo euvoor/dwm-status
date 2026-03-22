@@ -25,6 +25,8 @@ The current tree is Linux/X11-specific. That is intentional.
 
 `connectivity` is passive. It reads kernel and resolver state, but it does not send packets.
 
+Rendering is event-driven. Features publish their own updates, and the root name is only rewritten when the final bar string changes.
+
 ## Install
 
 Build it:
@@ -147,6 +149,8 @@ So if two features emit `A` and `B`, the root name becomes:
 ```
 
 That reversal is current behavior, not documentation drift.
+
+The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
 
 ## Symbol reference
 

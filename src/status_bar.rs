@@ -1,7 +1,8 @@
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 #[derive(Default, Debug)]
 pub struct StatusBar {
+    pub redraw: Notify,
     pub connectivity: RwLock<String>,
     pub cpu: RwLock<String>,
     pub date_time: RwLock<String>,
@@ -11,6 +12,7 @@ pub struct StatusBar {
 }
 
 impl StatusBar {
+    /// Shared status slots.
     pub fn new() -> Self {
         Self {
             ..Default::default()
