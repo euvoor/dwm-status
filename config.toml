@@ -4,7 +4,7 @@ features = [
   "ram",
   "cpu",
   "gpu",
-  "net_stats",
+  "traffic",
 ]
 
 [connectivity]
@@ -32,10 +32,5 @@ sparkline_width = 0
 glyph = ""
 idle = 1
 
-[net_stats]
-glyph = ""
-idle = 1
-ifaces = [
-  "enp10s0",
-  "wlx04d4c464bd3c",
-]
+[traffic]
+glyph = "󰖟 "

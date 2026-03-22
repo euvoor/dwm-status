@@ -8,7 +8,7 @@ pub struct StatusBar {
     pub cpu: RwLock<String>,
     pub gpu: RwLock<String>,
     pub ram: RwLock<String>,
-    pub net_stats: RwLock<String>,
+    pub traffic: RwLock<String>,
 }
 
 impl StatusBar {

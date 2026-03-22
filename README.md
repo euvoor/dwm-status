@@ -21,7 +21,7 @@ The current tree is Linux/X11-specific. That is intentional.
 - `ram`
 - `cpu`
 - `gpu`
-- `net_stats`
+- `traffic`
 
 `connectivity` is passive. It reads kernel and resolver state, but it does not send packets.
 
@@ -110,7 +110,7 @@ features = [
   "ram",
   "cpu",
   "gpu",
-  "net_stats",
+  "traffic",
 ]
 
 [connectivity]
@@ -138,13 +138,8 @@ sparkline_width = 0
 glyph = ""
 idle = 1
 
-[net_stats]
-glyph = ""
-idle = 1
-ifaces = [
-  "enp10s0",
-  "wlx04d4c464bd3c",
-]
+[traffic]
+glyph = "󰖟 "
 ```
 
 ## Output format
@@ -162,7 +157,7 @@ That reversal is current behavior, not documentation drift.
 The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
 `connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
 
-The sample `connectivity`, `clock`, `ram`, and `cpu` glyphs assume a Nerd Font-capable status font.
+The sample `connectivity`, `clock`, `ram`, `cpu`, and `traffic` glyphs assume a Nerd Font-capable status font.
 For `dwm`, a matching line in `config.h` is:
 
 ```c
@@ -197,19 +192,15 @@ T:wg0 gw dns
 E:enp10s0 no-gw dns down
 ```
 
-### Net Stats
+### Traffic
 
-Per-interface traffic labels reuse the same kind markers:
-
-- `W:` = wireless
-- `E:` = ethernet
-- `T:` = tunnel
-- `N:` = other
+- `↓` = receive rate
+- `↑` = transmit rate
 
 Example:
 
 ```text
-(W: 12.4 MiB/1.1 MiB) (E: 0 B/0 B)
+󰖟 ↓12.4M ↑1.1M
 ```
 
 ### CPU
@@ -276,11 +267,14 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 
 So this feature is not just telemetry. It actively pushes fan control.
 
-### `net_stats`
+### `traffic`
 
-- Reads `/proc/net/dev`.
-- Shows per-interval RX/TX deltas, not lifetime counters.
-- Reuses the same interface-kind detection as `connectivity`.
+- Renders `↓recv ↑trans` as one compact line.
+- The sample config uses `󰖟 ` as its glyph.
+- Uses a fixed internal one-second cadence.
+- Reads counters from `/proc/net/dev`.
+- Follows the current primary routed interface automatically.
+- Resets cleanly when the primary interface changes.
 
 ## Current constraints
 

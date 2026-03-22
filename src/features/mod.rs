@@ -17,5 +17,5 @@ pub(super) use cpu::Cpu;
 pub(super) mod gpu;
 pub(super) use gpu::Gpu;
 
-pub(super) mod net_stats;
-pub(super) use net_stats::NetStats;
+pub(super) mod traffic;
+pub(super) use traffic::Traffic;

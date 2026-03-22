@@ -9,7 +9,7 @@ pub struct Config {
     pub ram: RamConfig,
     pub cpu: CpuConfig,
     pub gpu: GpuConfig,
-    pub net_stats: NetStatsConfig,
+    pub traffic: TrafficConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -109,19 +109,15 @@ impl Default for GpuConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default)]
-pub struct NetStatsConfig {
+pub struct TrafficConfig {
     pub glyph: String,
-    pub idle: u64,
-    pub ifaces: Vec<String>,
 }
 
-impl Default for NetStatsConfig {
+impl Default for TrafficConfig {
     /// Default traffic reporting settings.
     fn default() -> Self {
         Self {
             glyph: String::new(),
-            idle: 1,
-            ifaces: vec![],
         }
     }
 }
@@ -182,5 +178,21 @@ sparkline_width = 0
         assert_eq!(config.features, vec!["cpu"]);
         assert_eq!(config.cpu.glyph, "cpu ");
         assert_eq!(config.cpu.sparkline_width, 0);
+    }
+
+    /// Parse the compact traffic config without interface lists.
+    #[test]
+    fn parse_traffic_config() {
+        let config = toml::from_str::<Config>(
+            r#"
+features = ["traffic"]
+
+[traffic]
+glyph = "net "
+"#,
+        ).unwrap();
+
+        assert_eq!(config.features, vec!["traffic"]);
+        assert_eq!(config.traffic.glyph, "net ");
     }
 }

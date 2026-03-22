@@ -17,7 +17,7 @@ use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
-use features::{Clock, Connectivity, Cpu, Gpu, NetStats, Ram};
+use features::{Clock, Connectivity, Cpu, Gpu, Ram, Traffic};
 
 /// Keep startup flags in one place.
 struct CliArgs {
@@ -151,7 +151,7 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     for feature in &config.features {
         match feature.as_str() {
             "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
-            "net_stats" => output.push(status_bar.net_stats.read().await.to_string()),
+            "traffic" => output.push(status_bar.traffic.read().await.to_string()),
             "cpu" => output.push(status_bar.cpu.read().await.to_string()),
             "clock" => output.push(status_bar.clock.read().await.to_string()),
             "ram" => output.push(status_bar.ram.read().await.to_string()),
@@ -206,10 +206,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 connectivity.set_config(config.connectivity.clone());
                 resources.push(Box::new(connectivity));
             }
-            "net_stats" => {
-                let mut net_stats = NetStats::new(status_bar.clone());
-                net_stats.set_config(config.net_stats.clone());
-                resources.push(Box::new(net_stats));
+            "traffic" => {
+                let mut traffic = Traffic::new(status_bar.clone());
+                traffic.set_config(config.traffic.clone());
+                resources.push(Box::new(traffic));
             }
             "cpu" => {
                 let mut cpu = Cpu::new(status_bar.clone());

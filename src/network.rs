@@ -69,15 +69,6 @@ impl InterfaceKind {
         }
     }
 
-    /// Shared interface label for throughput output.
-    pub fn net_stats_label(&self) -> &'static str {
-        match self {
-            Self::Wireless => "W",
-            Self::Wired => "E",
-            Self::Tunnel => "T",
-            Self::Other => "N",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -127,6 +118,14 @@ pub async fn read_connectivity_snapshot() -> Result<ConnectivitySnapshot, String
         has_default_route: ! default_route_ifaces.is_empty(),
         dns_state,
     })
+}
+
+/// Read the interface that best represents current traffic routing.
+pub async fn read_primary_interface() -> Result<Option<InterfaceState>, String> {
+    let default_route_ifaces = _read_default_route_ifaces().await?;
+    let interface_states = _read_interface_states().await?;
+
+    Ok(_pick_primary_iface(&default_route_ifaces, &interface_states))
 }
 
 /// Read byte counters for all visible interfaces.
