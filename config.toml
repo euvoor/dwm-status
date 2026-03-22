@@ -29,8 +29,7 @@ glyph = " "
 sparkline_width = 0
 
 [gpu]
-glyph = ""
-idle = 1
+glyph = "󰢮 "
 
 [traffic]
 glyph = "󰖟 "

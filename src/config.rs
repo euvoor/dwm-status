@@ -94,7 +94,6 @@ impl Default for CpuConfig {
 #[serde(default)]
 pub struct GpuConfig {
     pub glyph: String,
-    pub idle: u64,
 }
 
 impl Default for GpuConfig {
@@ -102,7 +101,6 @@ impl Default for GpuConfig {
     fn default() -> Self {
         Self {
             glyph: String::new(),
-            idle: 1,
         }
     }
 }
@@ -194,5 +192,21 @@ glyph = "net "
 
         assert_eq!(config.features, vec!["traffic"]);
         assert_eq!(config.traffic.glyph, "net ");
+    }
+
+    /// Parse the compact GPU config without a timing knob.
+    #[test]
+    fn parse_gpu_config() {
+        let config = toml::from_str::<Config>(
+            r#"
+features = ["gpu"]
+
+[gpu]
+glyph = "gpu "
+"#,
+        ).unwrap();
+
+        assert_eq!(config.features, vec!["gpu"]);
+        assert_eq!(config.gpu.glyph, "gpu ");
     }
 }

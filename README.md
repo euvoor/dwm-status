@@ -84,7 +84,6 @@ Required:
 Feature-specific:
 
 - `gpu`: `nvidia-smi`
-- `gpu`: `nvidia-settings`
 
 Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
 
@@ -135,8 +134,7 @@ glyph = " "
 sparkline_width = 0
 
 [gpu]
-glyph = ""
-idle = 1
+glyph = "󰢮 "
 
 [traffic]
 glyph = "󰖟 "
@@ -157,7 +155,7 @@ That reversal is current behavior, not documentation drift.
 The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
 `connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
 
-The sample `connectivity`, `clock`, `ram`, `cpu`, and `traffic` glyphs assume a Nerd Font-capable status font.
+The sample `connectivity`, `clock`, `ram`, `cpu`, `gpu`, and `traffic` glyphs assume a Nerd Font-capable status font.
 For `dwm`, a matching line in `config.h` is:
 
 ```c
@@ -261,11 +259,12 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 ### `gpu`
 
 - NVIDIA-only today.
-- Reads utilization and temperature from `nvidia-smi`.
-- Reads fan RPM from `nvidia-settings`.
-- Also writes fan speed with `nvidia-settings`.
-
-So this feature is not just telemetry. It actively pushes fan control.
+- Renders `usage% · V: vram% · T: temp° · F: fan%` as one compact line.
+- The sample config uses `󰢮 ` as its glyph.
+- Uses a fixed internal one-second cadence.
+- Reads telemetry through `nvidia-smi --query-gpu=... --format=csv,noheader,nounits`.
+- Uses the first GPU row reported by `nvidia-smi`.
+- Drops unsupported fields such as fan speed instead of printing noisy placeholders.
 
 ### `traffic`
 
@@ -280,5 +279,5 @@ So this feature is not just telemetry. It actively pushes fan control.
 
 - Unsupported feature names still panic.
 - Missing optional commands can make a feature lose part of its output.
-- `gpu` is intentionally opinionated and machine-specific.
+- `gpu` is still NVIDIA-specific.
 - The status line is currently rendered in reverse `features` order.
