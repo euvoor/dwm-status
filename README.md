@@ -45,6 +45,13 @@ install -m755 target/release/dwm_status ~/.local/bin/dwm_status
 install -m644 config.toml ~/.config/dwm_status/config.toml
 ```
 
+If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
+For example:
+
+```c
+static const char *fonts[] = { "FiraCode Nerd Font Mono:style=Regular:size=10" };
+```
+
 Then start it from your `dwm` session:
 
 ```bash
@@ -76,7 +83,6 @@ Required:
 
 Feature-specific:
 
-- `cpu`: `sensors` from `lm_sensors` if you want temperature output
 - `gpu`: `nvidia-smi`
 - `gpu`: `nvidia-settings`
 
@@ -125,10 +131,8 @@ timezone = ""
 glyph = "󰍛 "
 
 [cpu]
-glyph = ""
-idle = 1
-chip = "k10temp-pci-00c3"
-report = "Tctl"
+glyph = " "
+sparkline_width = 0
 
 [gpu]
 glyph = ""
@@ -158,7 +162,7 @@ That reversal is current behavior, not documentation drift.
 The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
 `connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
 
-The sample `clock` and `connectivity` glyphs assume a Nerd Font-capable status font.
+The sample `connectivity`, `clock`, `ram`, and `cpu` glyphs assume a Nerd Font-capable status font.
 For `dwm`, a matching line in `config.h` is:
 
 ```c
@@ -210,13 +214,13 @@ Example:
 
 ### CPU
 
-The per-core sparkline uses:
+The CPU sparkline uses:
 
 ```text
 ▁▂▃▄▅▆▇█▉
 ```
 
-Left to right means low to high per-core activity.
+Left to right means low to high CPU activity, either per core or grouped by config.
 
 ## Feature notes
 
@@ -254,10 +258,14 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 
 ### `cpu`
 
+- Renders `usage% sparkline temp` as one compact line.
+- The sample config uses ` ` as its glyph.
+- Uses a fixed internal one-second cadence.
 - Usage comes from `/proc/stat`.
-- Load and thread count come from `/proc/loadavg`.
-- Temperature currently parses the `Composite` line from `sensors`.
-- `chip` and `report` are still in the config, but current code does not use them yet.
+- `sparkline_width = 0` renders one glyph per logical CPU.
+- Any positive `sparkline_width` groups the sparkline to that many columns.
+- Temperature is read directly from `/sys/class/hwmon` and `/sys/class/thermal` when the kernel exposes a sane CPU sensor.
+- If no CPU temperature can be identified, the block omits it instead of shelling out to a tool.
 
 ### `gpu`
 

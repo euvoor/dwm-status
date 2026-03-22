@@ -25,10 +25,8 @@ format = "%a %d %b %Y %X %Z"
 timezone = ""
 
 [cpu]
-glyph = ""
-idle = 1
-chip = "k10temp-pci-00c3"
-report = "Tctl"
+glyph = " "
+sparkline_width = 0
 
 [gpu]
 glyph = ""

@@ -77,9 +77,7 @@ impl Default for RamConfig {
 #[serde(default)]
 pub struct CpuConfig {
     pub glyph: String,
-    pub idle: u64,
-    pub chip: String,
-    pub report: String,
+    pub sparkline_width: usize,
 }
 
 impl Default for CpuConfig {
@@ -87,9 +85,7 @@ impl Default for CpuConfig {
     fn default() -> Self {
         Self {
             glyph: String::new(),
-            idle: 1,
-            chip: String::new(),
-            report: String::new(),
+            sparkline_width: 8,
         }
     }
 }
@@ -168,5 +164,23 @@ format = "%H:%M"
         ).unwrap();
 
         assert_eq!(config.clock.timezone, "");
+    }
+
+    /// Parse the compact CPU config without legacy knobs.
+    #[test]
+    fn parse_cpu_config() {
+        let config = toml::from_str::<Config>(
+            r#"
+features = ["cpu"]
+
+[cpu]
+glyph = "cpu "
+sparkline_width = 0
+"#,
+        ).unwrap();
+
+        assert_eq!(config.features, vec!["cpu"]);
+        assert_eq!(config.cpu.glyph, "cpu ");
+        assert_eq!(config.cpu.sparkline_width, 0);
     }
 }
