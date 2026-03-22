@@ -1,14 +1,11 @@
-use std::sync::Arc;
-use crate::FeatureTrait;
-use tokio::sync::{ mpsc, Mutex };
-use tokio::time::{ sleep, Duration };
-use chrono::offset::Utc;
-use crate::StatusBar;
-use tokio::fs::read_to_string;
-use std::collections::HashMap;
-use byte_unit::Byte;
-use std::path::Path;
 use crate::config::NetStatsConfig;
+use crate::network::{interface_kind, read_dev_stats};
+use crate::FeatureTrait;
+use crate::StatusBar;
+use byte_unit::{Byte, UnitType};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
 pub struct NetStats {
     status_bar: Arc<StatusBar>,
@@ -27,47 +24,45 @@ impl FeatureTrait for NetStats {
     async fn pull(&mut self) {
         let mut prev_stats = HashMap::new();
 
-        for iface in &self.config.ifaces {
-            prev_stats.insert(iface, (0u128, 0u128));
-        }
-
         loop {
-            let dev = read_to_string("/proc/net/dev").await.unwrap();
+            let dev = match read_dev_stats().await {
+                Ok(dev) => dev,
+                Err(_) => {
+                    *self.status_bar.net_stats.write().await = String::new();
+                    sleep(Duration::from_secs(self.config.idle)).await;
+                    continue;
+                }
+            };
             let mut output = vec![];
 
-            dev.split('\n')
-                .for_each(|line| {
-                    if line.contains(':') {
-                        let line = line.split_once(':').unwrap();
+            for iface in &self.config.ifaces {
+                let stats = match dev.get(iface) {
+                    Some(stats) => stats,
+                    None => continue,
+                };
+                let prev = prev_stats.entry(iface.clone()).or_insert((stats.recv_bytes, stats.trans_bytes));
+                let recv_stat = Byte::from_u128(stats.recv_bytes.saturating_sub(prev.0))
+                    .unwrap()
+                    .get_appropriate_unit(UnitType::Binary);
+                let trans_stat = Byte::from_u128(stats.trans_bytes.saturating_sub(prev.1))
+                    .unwrap()
+                    .get_appropriate_unit(UnitType::Binary);
 
-                        for iface in &self.config.ifaces {
-                            if *iface == line.0.trim() {
-                                let prev = prev_stats.get(iface).unwrap();
-                                let mut stats = line.1.split_whitespace();
-                                let recv = stats.next().unwrap().parse::<u128>().unwrap();
-                                let trans = stats.skip(7).take(1).map(|n| n.parse::<u128>().unwrap()).collect::<Vec<u128>>()[0];
+                *prev = (stats.recv_bytes, stats.trans_bytes);
 
-                                let recv_stat = Byte::from_bytes(recv - prev.0).get_appropriate_unit(true);
-                                let trans_stat = Byte::from_bytes(trans - prev.1).get_appropriate_unit(true);
+                output.push(format!(
+                    "{}: {}/{}",
+                    interface_kind(iface).net_stats_label(),
+                    recv_stat,
+                    trans_stat,
+                ));
+            }
 
-                                prev_stats.insert(iface, (recv, trans));
-
-                                let mut ifacestr = format!("{}/{}", recv_stat, trans_stat);
-
-                                if Path::new(&format!("/sys/class/net/{}/wireless", iface)).exists() {
-                                    ifacestr = format!("W: {}", ifacestr);
-                                } else {
-                                    ifacestr = format!("E: {}", ifacestr);
-                                }
-
-                                output.push(ifacestr);
-                            }
-                        }
-                    }
-                });
-
-            if ! output.is_empty() {
-                output = output.iter().map(|a| format!("({})", a)).collect::<Vec<String>>();
+            if !output.is_empty() {
+                output = output
+                    .iter()
+                    .map(|a| format!("({})", a))
+                    .collect::<Vec<String>>();
             }
 
             let output = format!("{}{}", self.config.prefix, output.join(" "));

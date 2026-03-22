@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use crate::FeatureTrait;
-use tokio::sync::{ mpsc, Mutex };
-use tokio::time::{ sleep, Duration };
-use chrono::offset::Utc;
-use crate::StatusBar;
 use crate::config::DateTimeConfig;
+use crate::FeatureTrait;
+use crate::StatusBar;
+use chrono::offset::Utc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use tokio::time::{sleep, Duration};
 
 pub struct DateTime {
     status_bar: Arc<StatusBar>,
@@ -16,7 +16,7 @@ impl FeatureTrait for DateTime {
     fn new(status_bar: Arc<StatusBar>) -> Self {
         Self {
             status_bar,
-            config: DateTimeConfig::default()
+            config: DateTimeConfig::default(),
         }
     }
 
@@ -26,7 +26,10 @@ impl FeatureTrait for DateTime {
             let output = format!(
                 "{}{}",
                 self.config.prefix,
-                date_time.format(self.config.format.as_str()).to_string().trim()
+                date_time
+                    .format(self.config.format.as_str())
+                    .to_string()
+                    .trim()
             );
 
             *self.status_bar.date_time.write().await = output;

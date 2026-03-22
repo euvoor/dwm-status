@@ -1,152 +1,253 @@
-![Screenshot](.github/screenshot.png)
+# dwm_status
 
-# About
+`dwm_status` is a small Rust status feeder for `dwm`.
 
-Lightweight, Asynchronous and Extendible DWM Status bar built with rust.
+It does one thing: collect local machine state, assemble a plain text status line, and push it into the X root window with `xsetroot`.
 
-# Features
+The design target is the usual `dwm` setup:
 
-### Cpu
+- plain text instead of a bar protocol
+- one config file you can hand-edit
+- local state first
+- no active network probing by default
+- no extra daemon layer just to draw text
 
-Current CPU Usage, plus the usage of available cores, displayed as a graph.
+The current tree is Linux/X11-specific. That is intentional.
 
-### DateTime
+## Current feature set
 
-The current date time that does not take too much space.
+- `connectivity`
+- `date_time`
+- `memory`
+- `cpu`
+- `gpu`
+- `net_stats`
 
-### GPU
+`connectivity` is passive. It reads kernel and resolver state, but it does not send packets.
 
-If you are using NVIDIA drivers, and you notice that the fans do not start
-automatically, this feature can help you solve this problem automatically.
+## Install
 
-Display Gpu usage, Memory, temperature and Fan-RPM. plus it runs the fan automatically
-when the gpu temperature is high, and stop the fans when the temperature is
-back to normal.
+Build it:
 
-### Memory
-
-Memory usage displayed as percentage, helpfull and practical.
-
-### Network Status
-
-Upload and Download Status.
-
-For network stats to work for you, you must update this array in `src/main.rs`
-with the list of interfaces you want to show stats for.
-
-```rust
-net_stats.set_ifaces(vec!["enp10s0", "wlx04d4c464bd3c"]);
+```bash
+cargo build --release
 ```
 
-### Ping
+The binary currently reads `config.toml` from its working directory, so install the binary and the config together.
 
-Calculate the ping, uses cloudflare public DNS by default, and switch to
-mullvad vpn dns server when using vpn.
+One straightforward setup:
 
-### VPN
+```bash
+install -d ~/.local/lib/dwm_status ~/.local/bin
+install -m755 target/release/dwm_status ~/.local/lib/dwm_status/dwm_status
+install -m644 config.toml ~/.local/lib/dwm_status/config.toml
 
-Show connected + ip address when connected to Mullvad VPN.
+cat > ~/.local/bin/dwm_status <<'EOF'
+#!/usr/bin/env bash
+cd "$HOME/.local/lib/dwm_status" || exit 1
+exec ./dwm_status
+EOF
 
-# Usage
-
-`dwm_status` does not contains any config file nor command line, i built it
-for my own usage, the only way to change the behavior is to edit the code.
-
-To run it:
-
-```
-$ cargo build --release
-$ ./target/release/dwm_status &
+chmod +x ~/.local/bin/dwm_status
 ```
 
-# Adding more features
+Then start it from your `dwm` session:
 
-Adding new features is straight forward
-
-To add a new feature (for ex: connected to tor network)
-
-add `tor.rs` to `src/features`, then copy paste the following code:
-
-The value you assign to `output` variable is the one that will be displayed on
-`dwm_status`
-
-```rust
-use std::sync::Arc;
-use crate::FeatureTrait;
-use tokio::sync::{ mpsc, Mutex };
-use tokio::time::{ sleep, Duration };
-use crate::StatusBar;
-
-pub struct Tor {
-    status_bar: Arc<StatusBar>,
-    prefix: &'static str,
-    idle: Duration,
-}
-
-#[async_trait::async_trait]
-impl FeatureTrait for Tor {
-    fn new(status_bar: Arc<StatusBar>, prefix: &'static str, idle: Duration) -> Self {
-        Self { status_bar, prefix, idle }
-    }
-
-    async fn pull(&mut self) {
-        loop {
-            // Some logic to find out weather you are connected to tor or not
-
-            let output = "TOR: connected";
-
-            *self.status_bar.tor.write().await = output;
-            sleep(self.idle).await;
-        }
-    }
-}
+```bash
+~/.local/bin/dwm_status &
 ```
 
-Declare your module, in `src/features/mod.rs`
+Typical place:
 
-```rust
-pub(super) mod tor;
-pub(super) use tor::Tor;
+```bash
+# ~/.xinitrc
+~/.local/bin/dwm_status &
+exec dwm
 ```
 
-Add a new field to `src/status_bar.rs`
+If `config.toml` is missing or invalid, the process prints an error and exits.
 
-```rust
-pub struct StatusBar {
-    // ...Other fields
-    pub tor: RwLock<String>,
-}
+## Runtime dependencies
+
+Required:
+
+- `xsetroot`
+
+Feature-specific:
+
+- `cpu`: `sensors` from `lm_sensors` if you want temperature output
+- `gpu`: `nvidia-smi`
+- `gpu`: `nvidia-settings`
+
+Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
+
+## Config
+
+Config is TOML. Keep a full file, comment out what you do not need, and keep going.
+
+Example:
+
+```toml
+# Current code renders the final bar in reverse feature order.
+features = [
+  "connectivity",
+  "date_time",
+  "memory",
+  "cpu",
+  "gpu",
+  "net_stats",
+]
+
+[connectivity]
+prefix = ""
+idle = 1
+format = "compact"
+show_iface = true
+show_route = true
+show_dns = true
+show_kind = true
+
+[date_time]
+prefix = ""
+idle = 1
+format = "%a %d %b %Y %X %Z"
+
+[memory]
+prefix = ""
+idle = 1
+output = "used"
+
+[cpu]
+prefix = ""
+idle = 1
+chip = "k10temp-pci-00c3"
+report = "Tctl"
+
+[gpu]
+prefix = ""
+idle = 1
+
+[net_stats]
+prefix = ""
+idle = 1
+ifaces = [
+  "enp10s0",
+  "wlx04d4c464bd3c",
+]
 ```
 
-And finally edit `src/main.rs`
+## Output format
 
-```rust
-use features::{
-    // ...Other features
-    Tor,
-};
-// ... skip lines
-let resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![
-    //                                    Prefix   Poll updates every 1 second
-    Box::new(Tor::new(status_bar.clone(), "Tor: ", Duration::from_secs(1))),
-];
-// ... skip lines
-// This list can be ordered the way you want the status bar to display updates:
-{ output.push(status_bar.vpn.read().await.to_string()); }
-{ output.push(status_bar.date_time.read().await.to_string()); }
-{ output.push(status_bar.ping.read().await.to_string()); }
-{ output.push(status_bar.memory.read().await.to_string()); }
-{ output.push(status_bar.cpu.read().await.to_string()); }
-{ output.push(status_bar.gpu.read().await.to_string()); }
-{ output.push(status_bar.net_stats.read().await.to_string()); }
+The bar writer wraps the whole line with `▏` and `▕`, and joins enabled feature outputs with `▕▏`.
 
-// Add your line here
-{ output.push(status_bar.tor.read().await.to_string()); }
+So if two features emit `A` and `B`, the root name becomes:
+
+```text
+▏B▕▏A▕
 ```
 
-Now rebuild, and enjoy ;-)
+That reversal is current behavior, not documentation drift.
 
+## Symbol reference
+
+### Connectivity
+
+Compact mode uses short labels:
+
+- `W` = wireless interface
+- `E` = ethernet interface
+- `T` = tunnel-style interface
+- `N` = other interface type
+- `gw` = default route exists
+- `no-gw` = no default route found
+- `dns` = direct resolver addresses in `resolv.conf`
+- `stub` = loopback resolver only, for example `127.0.0.53`
+- `mixed` = both loopback and direct resolver entries found
+- `no-dns` = no `nameserver` lines found
+- `down` = selected primary interface is down
+
+Typical compact output:
+
+```text
+W:wlp4s0 gw stub
+T:wg0 gw dns
+E:enp10s0 no-gw dns down
 ```
-$ cargo build --release
-$ ./target/release/dwm_status &
+
+### Net Stats
+
+Per-interface traffic labels reuse the same kind markers:
+
+- `W:` = wireless
+- `E:` = ethernet
+- `T:` = tunnel
+- `N:` = other
+
+Example:
+
+```text
+(W: 12.4 MiB/1.1 MiB) (E: 0 B/0 B)
 ```
+
+### CPU
+
+The per-core sparkline uses:
+
+```text
+▁▂▃▄▅▆▇█▉
+```
+
+Left to right means low to high per-core activity.
+
+## Feature notes
+
+### `connectivity`
+
+This is the privacy-first network feature.
+
+- It does not ping anything.
+- It does not talk to third-party hosts.
+- It reports local state only.
+- It picks a primary interface from the default route when possible.
+- Tunnel detection is generic and based on interface naming patterns such as `wg*`, `tun*`, `tap*`, `ppp*`, `tailscale*`, and `zt*`.
+
+Use it as an honest local indicator, not as proof that the wider Internet is reachable.
+
+### `date_time`
+
+- Uses `chrono` formatting.
+- Current code uses `UTC`, not local time.
+
+### `memory`
+
+- `output` supports `used`, `free`, or `percentage`.
+- Values come from `/proc/meminfo`.
+
+### `cpu`
+
+- Usage comes from `/proc/stat`.
+- Load and thread count come from `/proc/loadavg`.
+- Temperature currently parses the `Composite` line from `sensors`.
+- `chip` and `report` are still in the config, but current code does not use them yet.
+
+### `gpu`
+
+- NVIDIA-only today.
+- Reads utilization and temperature from `nvidia-smi`.
+- Reads fan RPM from `nvidia-settings`.
+- Also writes fan speed with `nvidia-settings`.
+
+So this feature is not just telemetry. It actively pushes fan control.
+
+### `net_stats`
+
+- Reads `/proc/net/dev`.
+- Shows per-interval RX/TX deltas, not lifetime counters.
+- Reuses the same interface-kind detection as `connectivity`.
+
+## Current constraints
+
+- Unsupported feature names still panic.
+- Missing optional commands can make a feature lose part of its output.
+- `gpu` is intentionally opinionated and machine-specific.
+- The status line is currently rendered in reverse `features` order.

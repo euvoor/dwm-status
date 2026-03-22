@@ -1,12 +1,10 @@
-use std::sync::Arc;
-use crate::FeatureTrait;
-use tokio::sync::{ Mutex, mpsc };
-use std::io::prelude::*;
-use tokio::fs::read_to_string;
-use byte_unit::Byte;
-use tokio::time::{ sleep, Duration };
-use crate::StatusBar;
 use crate::config::MemoryConfig;
+use crate::FeatureTrait;
+use crate::StatusBar;
+use byte_unit::{Byte, UnitType};
+use std::sync::Arc;
+use tokio::fs::read_to_string;
+use tokio::time::{sleep, Duration};
 
 pub struct Memory {
     status_bar: Arc<StatusBar>,
@@ -28,7 +26,18 @@ impl FeatureTrait for Memory {
                 let mut line = line.split(':');
                 line.next().unwrap();
 
-                Byte::from_str(line.next().unwrap()).unwrap().get_bytes()
+                Byte::parse_str(line.next().unwrap(), true)
+                    .unwrap()
+                    .as_u128()
+            };
+
+            let format_bytes = |bytes: u128| -> String {
+                format!(
+                    "{:#.1}",
+                    Byte::from_u128(bytes)
+                        .unwrap()
+                        .get_appropriate_unit(UnitType::Binary)
+                )
             };
 
             let mut memtotal = 0;
@@ -36,22 +45,40 @@ impl FeatureTrait for Memory {
             let mut memavailable = 0;
             let mut buffers = 0;
             let mut cached = 0;
-            let mut swaptotal = 0;
 
-            read_to_string("/proc/meminfo").await.unwrap()
+            read_to_string("/proc/meminfo")
+                .await
+                .unwrap()
                 .split('\n')
                 .for_each(|line| {
-                    if line.starts_with("MemTotal:") { memtotal = _parse_number_fn(line); }
-                    if line.starts_with("MemFree:") { memfree = _parse_number_fn(line); }
-                    if line.starts_with("MemAvailable:") { memavailable = _parse_number_fn(line); }
-                    if line.starts_with("Buffers:") { buffers = _parse_number_fn(line); }
-                    if line.starts_with("Cached:") { cached = _parse_number_fn(line); }
-                    if line.starts_with("SwapTotal:") { swaptotal = _parse_number_fn(line); }
+                    if line.starts_with("MemTotal:") {
+                        memtotal = _parse_number_fn(line);
+                    }
+                    if line.starts_with("MemFree:") {
+                        memfree = _parse_number_fn(line);
+                    }
+                    if line.starts_with("MemAvailable:") {
+                        memavailable = _parse_number_fn(line);
+                    }
+                    if line.starts_with("Buffers:") {
+                        buffers = _parse_number_fn(line);
+                    }
+                    if line.starts_with("Cached:") {
+                        cached = _parse_number_fn(line);
+                    }
                 });
 
             let buff_cache = buffers + cached;
             let used = memtotal - memfree - buff_cache;
-            let output = format!("{}{:.1}%", self.config.prefix, (used as f64 / memtotal as f64) * 100.0);
+            let output = match self.config.output.as_str() {
+                "used" => format!("{}{}", self.config.prefix, format_bytes(used)),
+                "free" => format!("{}{}", self.config.prefix, format_bytes(memavailable)),
+                _ => format!(
+                    "{}{:.1}%",
+                    self.config.prefix,
+                    (used as f64 / memtotal as f64) * 100.0
+                ),
+            };
 
             *self.status_bar.memory.write().await = output;
 

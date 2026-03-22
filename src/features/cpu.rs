@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use crate::FeatureTrait;
-use tokio::time::{ sleep, Duration };
-use tokio::sync::mpsc;
-use tokio::fs::read_to_string;
-use std::process::{ Command, Stdio };
-use std::io::prelude::*;
-use crate::StatusBar;
 use crate::config::CpuConfig;
+use crate::FeatureTrait;
+use crate::StatusBar;
+use std::io::prelude::*;
+use std::process::{Command, Stdio};
+use std::sync::Arc;
+use tokio::fs::read_to_string;
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 
 pub struct Cpu {
     status_bar: Arc<StatusBar>,
@@ -24,7 +24,7 @@ impl FeatureTrait for Cpu {
             prev_total: 0,
             prev_idle: 0,
             cores: vec![],
-            config: CpuConfig::default()
+            config: CpuConfig::default(),
         }
     }
 
@@ -59,8 +59,7 @@ impl Cpu {
     }
 
     async fn _temperature(&mut self) -> Option<String> {
-        match Command::new("sensors")
-            .output() {
+        match Command::new("sensors").output() {
             Ok(sensors) => {
                 let grep = Command::new("grep")
                     .arg("Composite")
@@ -73,12 +72,15 @@ impl Cpu {
                 grep.stdin.unwrap().write_all(&sensors.stdout).unwrap();
                 grep.stdout.unwrap().read_to_string(&mut output).unwrap();
 
-                Some(output.split_whitespace()
-                    .skip(1)
-                    .take(1)
-                    .collect::<Vec<&str>>()
-                    .join(""))
-            },
+                Some(
+                    output
+                        .split_whitespace()
+                        .skip(1)
+                        .take(1)
+                        .collect::<Vec<&str>>()
+                        .join(""),
+                )
+            }
             Err(_) => {
                 eprintln!("'sensors' command not found!");
                 None
@@ -109,10 +111,12 @@ impl Cpu {
             scale * (1. - ((idle - prev_idle) as f64 / (total - prev_total) as f64))
         };
 
-        procstat.split('\n')
+        procstat
+            .split('\n')
             .filter(|line| line.starts_with("cpu"))
             .for_each(|line| {
-                let fields: Vec<usize> = line.split_whitespace()
+                let fields: Vec<usize> = line
+                    .split_whitespace()
                     .skip(1)
                     .map(|field| field.parse::<usize>().unwrap())
                     .collect();
@@ -126,7 +130,8 @@ impl Cpu {
                     self.prev_idle = idle;
                 } else {
                     let boxes = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▉'];
-                    let cpu = line.split_whitespace()
+                    let cpu = line
+                        .split_whitespace()
                         .take(1)
                         .collect::<Vec<&str>>()
                         .join("")
@@ -142,17 +147,36 @@ impl Cpu {
                         cores.push(boxes[0]);
                     }
 
-                    let perc = _calc_perc_fn(8.0, total, idle, self.cores[cpu].0, self.cores[cpu].1);
+                    let perc =
+                        _calc_perc_fn(8.0, total, idle, self.cores[cpu].0, self.cores[cpu].1);
 
-                    if (0.0..0.5).contains(&perc) { cores[cpu] = boxes[0]; }
-                    if (0.5..1.5).contains(&perc) { cores[cpu] = boxes[1]; }
-                    if (1.5..2.5).contains(&perc) { cores[cpu] = boxes[2]; }
-                    if (2.5..3.5).contains(&perc) { cores[cpu] = boxes[3]; }
-                    if (3.5..4.5).contains(&perc) { cores[cpu] = boxes[4]; }
-                    if (4.5..5.5).contains(&perc) { cores[cpu] = boxes[5]; }
-                    if (5.5..6.5).contains(&perc) { cores[cpu] = boxes[6]; }
-                    if (6.5..7.5).contains(&perc) { cores[cpu] = boxes[7]; }
-                    if (7.5..=8.0).contains(&perc) { cores[cpu] = boxes[8]; }
+                    if (0.0..0.5).contains(&perc) {
+                        cores[cpu] = boxes[0];
+                    }
+                    if (0.5..1.5).contains(&perc) {
+                        cores[cpu] = boxes[1];
+                    }
+                    if (1.5..2.5).contains(&perc) {
+                        cores[cpu] = boxes[2];
+                    }
+                    if (2.5..3.5).contains(&perc) {
+                        cores[cpu] = boxes[3];
+                    }
+                    if (3.5..4.5).contains(&perc) {
+                        cores[cpu] = boxes[4];
+                    }
+                    if (4.5..5.5).contains(&perc) {
+                        cores[cpu] = boxes[5];
+                    }
+                    if (5.5..6.5).contains(&perc) {
+                        cores[cpu] = boxes[6];
+                    }
+                    if (6.5..7.5).contains(&perc) {
+                        cores[cpu] = boxes[7];
+                    }
+                    if (7.5..=8.0).contains(&perc) {
+                        cores[cpu] = boxes[8];
+                    }
 
                     self.cores[cpu].0 = total;
                     self.cores[cpu].1 = idle;
