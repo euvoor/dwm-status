@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.50.0", features = ["full"] }
-futures = "0.3.32"
 async-trait = "0.1.89"
 chrono = "0.4.44"
 byte-unit = "5.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.0.7"
+x11rb = "0.13.2"

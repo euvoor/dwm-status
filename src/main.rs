@@ -4,17 +4,15 @@ mod config;
 mod features;
 mod network;
 mod status_bar;
+mod x11_root;
 
 use std::fs::read_to_string;
-use std::process::Command;
 use std::sync::Arc;
-
-use futures::future::join_all;
-use futures::stream::FuturesUnordered;
 
 use config::Config;
 use features::FeatureTrait;
 use status_bar::StatusBar;
+use x11_root::RootNameWriter;
 
 use features::{Connectivity, Cpu, DateTime, Gpu, Memory, NetStats};
 
@@ -53,16 +51,6 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     format!("▏{}▕", output.join("▕▏"))
 }
 
-/// Push the current line through xsetroot.
-fn _set_root_name(output: &str) -> Result<(), String> {
-    Command::new("xsetroot")
-        .args(["-name", output])
-        .output()
-        .map_err(|err| format!("Failed to run xsetroot: {err}"))?;
-
-    Ok(())
-}
-
 #[tokio::main]
 /// Start workers and the renderer.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,8 +62,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let futures = FuturesUnordered::new();
     let status_bar = Arc::new(StatusBar::new());
+    let root_name_writer = match RootNameWriter::connect() {
+        Ok(root_name_writer) => root_name_writer,
+        Err(err) => {
+            eprintln!("{err}");
+            return Ok(());
+        }
+    };
     let mut resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![];
 
     for feature in &config.features {
@@ -115,35 +109,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for mut resource in resources {
-        futures.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             resource.pull().await;
-        }));
+        });
     }
 
-    let render_status_bar = status_bar.clone();
-
-    tokio::spawn(async move {
-        let mut last_output = String::new();
-
-        loop {
-            render_status_bar.redraw.notified().await;
-
-            let output = _build_output(render_status_bar.as_ref(), &config).await;
-
-            if output == last_output {
-                continue;
-            }
-
-            match _set_root_name(&output) {
-                Ok(_) => last_output = output,
-                Err(err) => eprintln!("{err}"),
-            }
-        }
-    });
-
     status_bar.redraw.notify_one();
+    let mut last_output = String::new();
 
-    join_all(futures).await;
+    loop {
+        status_bar.redraw.notified().await;
 
+        let output = _build_output(status_bar.as_ref(), &config).await;
+
+        if output == last_output {
+            continue;
+        }
+
+        match root_name_writer.set_status(&output) {
+            Ok(_) => last_output = output,
+            Err(err) => eprintln!("{err}"),
+        }
+    }
+
+    #[allow(unreachable_code)]
     Ok(())
 }

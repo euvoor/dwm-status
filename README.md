@@ -2,7 +2,7 @@
 
 `dwm_status` is a small Rust status feeder for `dwm`.
 
-It does one thing: collect local machine state, assemble a plain text status line, and push it into the X root window with `xsetroot`.
+It does one thing: collect local machine state, assemble a plain text status line, and push it into the X root window name over X11.
 
 The design target is the usual `dwm` setup:
 
@@ -73,7 +73,7 @@ If `config.toml` is missing or invalid, the process prints an error and exits.
 
 Required:
 
-- `xsetroot`
+- a working X11 session with `DISPLAY` and X authority available
 
 Feature-specific:
 
@@ -82,6 +82,8 @@ Feature-specific:
 - `gpu`: `nvidia-settings`
 
 Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
+
+No external renderer command is required now. The binary talks to X directly.
 
 ## Config
 
