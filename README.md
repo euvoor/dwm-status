@@ -239,20 +239,19 @@ Compact mode uses short labels:
 - `E` = ethernet interface
 - `T` = tunnel-style interface
 - `N` = other interface type
-- `gw` = default route exists
-- `no-gw` = no default route found
+- `gw` = a usable default route exists on an up interface
+- `no-gw` = no usable default route exists
 - `dns` = direct resolver addresses in `resolv.conf`
 - `stub` = loopback resolver only, for example `127.0.0.53`
 - `mixed` = both loopback and direct resolver entries found
 - `no-dns` = no `nameserver` lines found
-- `down` = selected primary interface is down
 
 Typical compact output:
 
 ```text
 W:wlp4s0 gw stub
 T:wg0 gw dns
-E:enp10s0 no-gw dns down
+E:enp10s0 no-gw dns
 ```
 
 ### Traffic
@@ -286,9 +285,11 @@ This is the privacy-first network feature.
 - It does not talk to third-party hosts.
 - It reports local state only.
 - The sample config uses `󰖩 ` as its glyph.
-- It wakes on kernel route, address, and link changes when netlink is available.
+- It publishes once immediately, then wakes on kernel route, address, and link changes when netlink is available.
 - `idle` is the fallback resync interval for DNS changes and missed events.
-- It picks a primary interface from the default route when possible.
+- It accepts only active, non-reject IPv4 and IPv6 defaults with valid zero prefixes, then picks the up interface with the lowest route metric.
+- Equal metrics sort by interface name, then IPv4 before IPv6. If no usable default exists, the fallback is the first alphabetically named up, non-loopback interface and the block reports `no-gw`.
+- Resolver state comes only from exact `nameserver ADDRESS` directives in `/etc/resolv.conf`; comments and malformed addresses are ignored.
 - Tunnel detection is generic and based on interface naming patterns such as `wg*`, `tun*`, `tap*`, `ppp*`, `tailscale*`, and `zt*`.
 
 Use it as an honest local indicator, not as proof that the wider Internet is reachable.
@@ -344,7 +345,7 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 - The sample config uses `󰖟 ` as its glyph.
 - Uses a fixed internal one-second cadence.
 - Reads counters from `/proc/net/dev`.
-- Follows the current primary routed interface automatically.
+- Uses the same metric-aware primary-interface selection as `connectivity`.
 - Resets cleanly when the primary interface changes.
 
 ## Current constraints

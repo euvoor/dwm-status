@@ -10,6 +10,9 @@ use rtnetlink::{new_multicast_connection, MulticastGroup};
 use tokio::fs::read_to_string;
 use tokio::sync::Notify;
 
+const ROUTE_FLAG_UP: u32 = 0x0001;
+const ROUTE_FLAG_REJECT: u32 = 0x0200;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DnsState {
     Missing,
@@ -91,6 +94,25 @@ pub struct ConnectivitySnapshot {
     pub dns_state: DnsState,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum RouteFamily {
+    Ipv4,
+    Ipv6,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DefaultRoute {
+    iface: String,
+    metric: u32,
+    flags: u32,
+    family: RouteFamily,
+}
+
+struct PrimarySelection {
+    primary_iface: Option<InterfaceState>,
+    has_default_route: bool,
+}
+
 /// Subscribe to passive kernel network events.
 pub fn spawn_connectivity_events() -> Result<Arc<Notify>, String> {
     let (connection, _handle, messages) = match new_multicast_connection(&_connectivity_groups()) {
@@ -108,24 +130,24 @@ pub fn spawn_connectivity_events() -> Result<Arc<Notify>, String> {
 
 /// Pull a fresh passive connectivity snapshot.
 pub async fn read_connectivity_snapshot() -> Result<ConnectivitySnapshot, String> {
-    let default_route_ifaces = _read_default_route_ifaces().await?;
+    let default_routes = _read_default_routes().await?;
     let interface_states = _read_interface_states().await?;
     let dns_state = _read_dns_state().await?;
-    let primary_iface = _pick_primary_iface(&default_route_ifaces, &interface_states);
+    let selection = _select_primary_iface(&default_routes, &interface_states);
 
     Ok(ConnectivitySnapshot {
-        primary_iface,
-        has_default_route: ! default_route_ifaces.is_empty(),
+        primary_iface: selection.primary_iface,
+        has_default_route: selection.has_default_route,
         dns_state,
     })
 }
 
 /// Read the interface that best represents current traffic routing.
 pub async fn read_primary_interface() -> Result<Option<InterfaceState>, String> {
-    let default_route_ifaces = _read_default_route_ifaces().await?;
+    let default_routes = _read_default_routes().await?;
     let interface_states = _read_interface_states().await?;
 
-    Ok(_pick_primary_iface(&default_route_ifaces, &interface_states))
+    Ok(_select_primary_iface(&default_routes, &interface_states).primary_iface)
 }
 
 /// Read byte counters for all visible interfaces.
@@ -184,71 +206,103 @@ async fn _forward_connectivity_events<S, T>(
     }
 }
 
-/// Gather default-route interfaces across IPv4 and IPv6.
-async fn _read_default_route_ifaces() -> Result<Vec<String>, String> {
-    let mut ifaces = _read_default_route_ifaces_v4().await?;
-    let mut v6_ifaces = _read_default_route_ifaces_v6().await?;
+/// Gather typed default routes across IPv4 and IPv6.
+async fn _read_default_routes() -> Result<Vec<DefaultRoute>, String> {
+    let mut routes = _read_default_routes_v4().await?;
+    let mut v6_routes = _read_default_routes_v6().await?;
 
-    ifaces.append(&mut v6_ifaces);
-    ifaces.sort();
-    ifaces.dedup();
+    routes.append(&mut v6_routes);
 
-    Ok(ifaces)
+    Ok(routes)
 }
 
-/// Read default-route interfaces from the IPv4 route table.
-async fn _read_default_route_ifaces_v4() -> Result<Vec<String>, String> {
+/// Read typed defaults from the IPv4 route table.
+async fn _read_default_routes_v4() -> Result<Vec<DefaultRoute>, String> {
     let routes = _read_text("/proc/net/route").await?;
 
-    Ok(_from_default_route_ifaces_v4(routes.as_str()))
+    Ok(_from_default_routes_v4(routes.as_str()))
 }
 
-/// Parse IPv4 default-route interfaces from procfs text.
-fn _from_default_route_ifaces_v4(routes: &str) -> Vec<String> {
-    let mut ifaces = vec![];
+/// Parse usable IPv4 defaults from procfs text.
+fn _from_default_routes_v4(routes: &str) -> Vec<DefaultRoute> {
+    let mut defaults = vec![];
 
     for line in routes.lines().skip(1) {
         let cols: Vec<&str> = line.split_whitespace().collect();
 
-        if cols.len() < 2 {
+        if cols.len() < 8
+            || ! _is_zero_hex(cols[1], 8)
+            || ! _is_zero_hex(cols[7], 8)
+        {
             continue;
         }
 
-        if cols[1] == "00000000" {
-            ifaces.push(cols[0].to_string());
-        }
+        let flags = match _from_hex_u32(cols[3]) {
+            Some(flags) => flags,
+            None => continue,
+        };
+        let metric = match cols[6].parse::<u32>() {
+            Ok(metric) => metric,
+            Err(_) => continue,
+        };
+
+        defaults.push(DefaultRoute {
+            iface: cols[0].to_string(),
+            metric,
+            flags,
+            family: RouteFamily::Ipv4,
+        });
     }
 
-    ifaces
+    defaults
 }
 
-/// Read default-route interfaces from the IPv6 route table.
-async fn _read_default_route_ifaces_v6() -> Result<Vec<String>, String> {
+/// Read typed defaults from the IPv6 route table.
+async fn _read_default_routes_v6() -> Result<Vec<DefaultRoute>, String> {
     let routes = match _read_text("/proc/net/ipv6_route").await {
         Ok(routes) => routes,
         Err(_) => return Ok(vec![]),
     };
 
-    Ok(_from_default_route_ifaces_v6(routes.as_str()))
+    Ok(_from_default_routes_v6(routes.as_str()))
 }
 
-/// Parse IPv6 default-route interfaces from procfs text.
-fn _from_default_route_ifaces_v6(routes: &str) -> Vec<String> {
-    let mut ifaces = vec![];
+/// Parse usable IPv6 defaults from procfs text.
+fn _from_default_routes_v6(routes: &str) -> Vec<DefaultRoute> {
+    let mut defaults = vec![];
 
     for line in routes.lines() {
         let cols: Vec<&str> = line.split_whitespace().collect();
 
-        if cols.len() < 10 {
+        if cols.len() < 10
+            || ! _is_zero_hex(cols[0], 32)
+            || _from_hex_u32(cols[1]) != Some(0)
+            || ! _is_zero_hex(cols[2], 32)
+            || _from_hex_u32(cols[3]) != Some(0)
+            || cols[4].len() != 32
+            || ! cols[4].bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
             continue;
         }
 
-        if cols[0] == "00000000000000000000000000000000" && cols[1] == "00000000" {
-            ifaces.push(cols[9].to_string());
-        }
+        let metric = match _from_hex_u32(cols[5]) {
+            Some(metric) => metric,
+            None => continue,
+        };
+        let flags = match _from_hex_u32(cols[8]) {
+            Some(flags) => flags,
+            None => continue,
+        };
+
+        defaults.push(DefaultRoute {
+            iface: cols[9].to_string(),
+            metric,
+            flags,
+            family: RouteFamily::Ipv6,
+        });
     }
 
-    ifaces
+    defaults
 }
 
 /// Read link state for all interfaces exposed by the kernel.
@@ -316,11 +370,13 @@ fn _from_dns_state(resolv_conf: &str) -> DnsState {
     let mut has_remote = false;
 
     for line in resolv_conf.lines() {
-        if ! line.trim().starts_with("nameserver") {
+        let mut fields = line.split_whitespace();
+
+        if fields.next() != Some("nameserver") {
             continue;
         }
 
-        let server = match line.split_whitespace().last() {
+        let server = match fields.next() {
             Some(server) => server,
             None => continue,
         };
@@ -368,15 +424,37 @@ async fn _read_text(path: &str) -> Result<String, String> {
     }
 }
 
-/// Pick the interface that best represents current traffic routing.
-fn _pick_primary_iface(
-    default_route_ifaces: &[String],
+/// Pick the lowest-metric default on an up link, then a stable fallback.
+fn _select_primary_iface(
+    default_routes: &[DefaultRoute],
     interface_states: &HashMap<String, InterfaceState>,
-) -> Option<InterfaceState> {
-    for iface in default_route_ifaces {
-        if let Some(state) = interface_states.get(iface) {
-            return Some(state.clone());
+) -> PrimarySelection {
+    let mut best_route: Option<&DefaultRoute> = None;
+
+    for route in default_routes {
+        if route.flags & ROUTE_FLAG_UP == 0 || route.flags & ROUTE_FLAG_REJECT != 0 {
+            continue;
         }
+
+        let Some(state) = interface_states.get(&route.iface) else {
+            continue;
+        };
+
+        if ! state.link_up {
+            continue;
+        }
+
+        match best_route {
+            Some(current) if _route_sort_key(current) <= _route_sort_key(route) => {}
+            _ => best_route = Some(route),
+        }
+    }
+
+    if let Some(route) = best_route {
+        return PrimarySelection {
+            primary_iface: interface_states.get(&route.iface).cloned(),
+            has_default_route: true,
+        };
     }
 
     let mut ifaces = vec![];
@@ -391,7 +469,15 @@ fn _pick_primary_iface(
 
     ifaces.sort_by_key(_iface_sort_key);
 
-    ifaces.into_iter().next()
+    PrimarySelection {
+        primary_iface: ifaces.into_iter().next(),
+        has_default_route: false,
+    }
+}
+
+/// Order routes by metric, interface name, then address family.
+fn _route_sort_key(route: &DefaultRoute) -> (u32, &str, RouteFamily) {
+    (route.metric, route.iface.as_str(), route.family)
 }
 
 /// Sort interface candidates by stable name order.
@@ -436,14 +522,32 @@ fn _from_dev_stats(dev: &str) -> HashMap<String, DevStats> {
     stats
 }
 
+/// Parse a procfs hexadecimal field without accepting signs or prefixes.
+fn _from_hex_u32(value: &str) -> Option<u32> {
+    u32::from_str_radix(value, 16).ok()
+}
+
+/// Validate a fixed-width all-zero hexadecimal field.
+fn _is_zero_hex(value: &str, width: usize) -> bool {
+    value.len() == width && value.bytes().all(|byte| byte == b'0')
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{
-        _from_default_route_ifaces_v4,
-        _from_default_route_ifaces_v6,
+        _from_default_routes_v4,
+        _from_default_routes_v6,
         _from_dev_stats,
         _from_dns_state,
+        _route_sort_key,
+        _select_primary_iface,
+        DefaultRoute,
         DnsState,
+        InterfaceKind,
+        InterfaceState,
+        RouteFamily,
     };
 
     /// Parse device counters without reading the host network namespace.
@@ -469,21 +573,147 @@ mod tests {
     /// Parse IPv4 default-route interfaces from procfs text.
     #[test]
     fn parse_ipv4_default_route_fixture() {
-        let ifaces = _from_default_route_ifaces_v4(
+        let routes = _from_default_routes_v4(
             include_str!("../tests/fixtures/proc/net/route.txt"),
         );
 
-        assert_eq!(ifaces, vec!["enp10s0"]);
+        assert_eq!(routes, vec![DefaultRoute {
+            iface: "enp10s0".to_string(),
+            metric: 1002,
+            flags: 0x0003,
+            family: RouteFamily::Ipv4,
+        }]);
     }
 
     /// Parse IPv6 default-route interfaces from procfs text.
     #[test]
     fn parse_ipv6_default_route_fixture() {
-        let ifaces = _from_default_route_ifaces_v6(
+        let routes = _from_default_routes_v6(
             include_str!("../tests/fixtures/proc/net/ipv6_route.txt"),
         );
 
-        assert_eq!(ifaces, vec!["wlp4s0"]);
+        assert_eq!(routes, vec![DefaultRoute {
+            iface: "wlp4s0".to_string(),
+            metric: 1024,
+            flags: 0x0003,
+            family: RouteFamily::Ipv6,
+        }]);
+    }
+
+    /// Keep IPv4 state flags while rejecting malformed and non-default rows.
+    #[test]
+    fn filter_ipv4_route_candidates() {
+        let routes = _from_default_routes_v4(
+            include_str!("../tests/fixtures/proc/net/route_selection_v4.txt"),
+        );
+        let names: Vec<&str> = routes.iter().map(|route| route.iface.as_str()).collect();
+
+        assert_eq!(names, vec!["z-wan", "a-wan", "down0", "reject0", "inactive0"]);
+    }
+
+    /// Keep IPv6 state flags while rejecting malformed and non-default rows.
+    #[test]
+    fn filter_ipv6_route_candidates() {
+        let routes = _from_default_routes_v6(
+            include_str!("../tests/fixtures/proc/net/route_selection_v6.txt"),
+        );
+        let names: Vec<&str> = routes.iter().map(|route| route.iface.as_str()).collect();
+
+        assert_eq!(names, vec!["b-v6", "down6", "reject6", "inactive6"]);
+    }
+
+    /// Pick the lowest-metric route only when its link is up.
+    #[test]
+    fn select_lowest_metric_active_route() {
+        let routes = vec![
+            DefaultRoute {
+                iface: "a-high".to_string(),
+                metric: 100,
+                flags: 0x0003,
+                family: RouteFamily::Ipv4,
+            },
+            DefaultRoute {
+                iface: "z-low".to_string(),
+                metric: 10,
+                flags: 0x0003,
+                family: RouteFamily::Ipv4,
+            },
+            DefaultRoute {
+                iface: "down0".to_string(),
+                metric: 1,
+                flags: 0x0003,
+                family: RouteFamily::Ipv4,
+            },
+            DefaultRoute {
+                iface: "reject0".to_string(),
+                metric: 0,
+                flags: 0x0201,
+                family: RouteFamily::Ipv4,
+            },
+            DefaultRoute {
+                iface: "inactive0".to_string(),
+                metric: 0,
+                flags: 0x0002,
+                family: RouteFamily::Ipv4,
+            },
+        ];
+        let states = _interface_states(&[
+            ("a-high", true),
+            ("z-low", true),
+            ("down0", false),
+            ("reject0", true),
+            ("inactive0", true),
+        ]);
+        let selection = _select_primary_iface(&routes, &states);
+
+        assert_eq!(selection.primary_iface.unwrap().name, "z-low");
+        assert!(selection.has_default_route);
+    }
+
+    /// Break equal route metrics by interface name, then IPv4 before IPv6.
+    #[test]
+    fn select_route_with_deterministic_family_tie_break() {
+        let states = _interface_states(&[("a-v6", true), ("z-v4", true)]);
+        let routes = vec![
+            DefaultRoute {
+                iface: "z-v4".to_string(),
+                metric: 50,
+                flags: 0x0003,
+                family: RouteFamily::Ipv4,
+            },
+            DefaultRoute {
+                iface: "a-v6".to_string(),
+                metric: 50,
+                flags: 0x0003,
+                family: RouteFamily::Ipv6,
+            },
+        ];
+        let selection = _select_primary_iface(&routes, &states);
+        let ipv6 = DefaultRoute {
+            iface: "same0".to_string(),
+            metric: 50,
+            flags: 0x0003,
+            family: RouteFamily::Ipv6,
+        };
+        let ipv4 = DefaultRoute {
+            iface: "same0".to_string(),
+            metric: 50,
+            flags: 0x0003,
+            family: RouteFamily::Ipv4,
+        };
+
+        assert_eq!(selection.primary_iface.unwrap().name, "a-v6");
+        assert!(_route_sort_key(&ipv4) < _route_sort_key(&ipv6));
+    }
+
+    /// Fall back to the first named up non-loopback link without claiming a route.
+    #[test]
+    fn fallback_without_usable_default_route() {
+        let states = _interface_states(&[("z-wan", true), ("a-wan", true), ("down0", false), ("lo", true)]);
+        let selection = _select_primary_iface(&[], &states);
+
+        assert_eq!(selection.primary_iface.unwrap().name, "a-wan");
+        assert!(!selection.has_default_route);
     }
 
     /// Classify resolver state from fixture text.
@@ -492,5 +722,43 @@ mod tests {
         let state = _from_dns_state(include_str!("../tests/fixtures/etc/resolv.conf"));
 
         assert_eq!(state, DnsState::Mixed);
+    }
+
+    /// Parse only exact nameserver directives and their second token.
+    #[test]
+    fn parse_dns_edge_case_fixture() {
+        let state = _from_dns_state(include_str!("../tests/fixtures/etc/resolv_edge_cases.conf"));
+
+        assert_eq!(state, DnsState::Mixed);
+    }
+
+    /// Distinguish missing, stub, direct, and mixed resolver state.
+    #[test]
+    fn classify_all_dns_states() {
+        let cases = [
+            ("# nameserver 127.0.0.1\nnameserver-invalid 1.1.1.1\nnameserver nope 9.9.9.9\n", DnsState::Missing),
+            ("nameserver 127.0.0.53\nnameserver ::1\n", DnsState::Stub),
+            ("nameserver 1.1.1.1\nnameserver 2606:4700:4700::1111\n", DnsState::Direct),
+            ("nameserver 127.0.0.53\nnameserver 9.9.9.9\n", DnsState::Mixed),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(_from_dns_state(input), expected);
+        }
+    }
+
+    /// Build deterministic interface maps for route selection.
+    fn _interface_states(ifaces: &[(&str, bool)]) -> HashMap<String, InterfaceState> {
+        let mut states = HashMap::new();
+
+        for (name, link_up) in ifaces {
+            states.insert((*name).to_string(), InterfaceState {
+                name: (*name).to_string(),
+                kind: InterfaceKind::Wired,
+                link_up: *link_up,
+            });
+        }
+
+        states
     }
 }
