@@ -1,0 +1,89 @@
+name: Bug report
+description: Report reproducible incorrect behavior in dwm_status.
+title: "[Bug]: "
+labels:
+  - bug
+assignees:
+  - euvoor
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Do not report vulnerabilities here; use the private security reporting link from the issue chooser.
+  - type: input
+    id: revision
+    attributes:
+      label: Version or commit
+      description: Give the commit SHA, tag, or exact revision used to build the installed binary.
+      placeholder: e.g. a44f5d0 or current master
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Linux and dwm environment
+      description: Include distribution, kernel, dwm version or commit, and how the X session starts.
+      placeholder: e.g. Arch Linux, Linux 6.x, dwm 6.5 from startx
+    validations:
+      required: true
+  - type: dropdown
+    id: invocation
+    attributes:
+      label: Build or install path
+      options:
+        - make install
+        - make reinstall
+        - cargo run
+        - Direct cargo build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant configuration
+      description: Paste the smallest config that reproduces the problem. Remove private or identifying values.
+      render: toml
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: List the exact commands and actions needed to reproduce the problem.
+      placeholder: |
+        1. Run ...
+        2. Change ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State the exact root-window value or process behavior you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the observed root-window value, exit status, and concise stderr or log output.
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional evidence
+      description: Add relevant xprop output, sanitized logs, or other details that narrow the failure.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched the README and existing issues.
+          required: true
+        - label: This report contains no secrets, private data, or undisclosed vulnerability details.
+          required: true
+        - label: I agree to follow the [Code of Conduct](https://github.com/euvoor/dwm-status/blob/master/CODE_OF_CONDUCT.md).
+          required: true

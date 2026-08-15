@@ -1,0 +1,58 @@
+name: Feature proposal
+description: Propose a concrete change for a real dwm_status workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+assignees:
+  - euvoor
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the machine and workflow first. Proposals enter Review before implementation is approved.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and workflow
+      description: Explain what is difficult now, who encounters it, and on what Linux/dwm setup.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe observable behavior, configuration, output, and failure handling.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing alternatives
+      description: Explain how shell scripts, slstatus, dwmblocks, or another tool handle the need and why that is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: assumptions
+    attributes:
+      label: Platform assumptions and side effects
+      description: List vendor commands, file reads or writes, X11 changes, process control, privileges, and optional dependencies.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification idea
+      description: Describe how the behavior could be tested without depending only on one workstation.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for the same proposal.
+          required: true
+        - label: I described current behavior separately from the proposed behavior.
+          required: true
+        - label: I agree to follow the [Code of Conduct](https://github.com/euvoor/dwm-status/blob/master/CODE_OF_CONDUCT.md).
+          required: true

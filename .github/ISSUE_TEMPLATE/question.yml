@@ -1,0 +1,44 @@
+name: Usage question
+description: Ask a focused install, configuration, or runtime question.
+title: "[Question]: "
+labels:
+  - question
+assignees:
+  - euvoor
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This tracker covers dwm_status, not general Linux, dwm, X11, Rust, NVIDIA driver, font, or shell support.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: State the intended root-window output or process behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include the relevant README section, commands, sanitized config, and observed output.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Linux and dwm environment
+      description: Include distribution, kernel, dwm version or commit, and X session startup method.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched the README and existing issues first.
+          required: true
+        - label: I removed secrets and identifying data from commands, config, and logs.
+          required: true
+        - label: I agree to follow the [Code of Conduct](https://github.com/euvoor/dwm-status/blob/master/CODE_OF_CONDUCT.md).
+          required: true
