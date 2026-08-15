@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-for required_command in Xvfb ip sudo unshare xprop; do
+for required_command in Xvfb ip mount sudo unshare xprop; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Missing netlink smoke dependency: $required_command" >&2
     exit 1
@@ -41,6 +41,9 @@ set -euo pipefail
 
 status_pid=""
 trap 'if [[ -n "$status_pid" ]]; then kill "$status_pid" 2>/dev/null || true; wait "$status_pid" 2>/dev/null || true; fi' EXIT
+
+mount --make-rprivate /
+mount -t sysfs sysfs /sys
 
 "$BINARY" --config "$CONFIG_PATH" 2>"$STDERR_PATH" &
 status_pid=$!
@@ -158,4 +161,4 @@ sudo --non-interactive /usr/bin/env \
   BINARY="$binary" \
   CONFIG_PATH="$config_path" \
   STDERR_PATH="$stderr_path" \
-  /usr/bin/unshare --net -- "$namespace_script"
+  /usr/bin/unshare --mount --net --mount-proc -- "$namespace_script"

@@ -97,7 +97,7 @@ The passive-netlink smoke test also requires `ip`, `unshare`, and non-interactiv
 ./scripts/netlink-smoke.sh
 ```
 
-It creates a link and default route only inside a short-lived network namespace, drives the release binary against a temporary Xvfb server, and checks that both kernel changes wake rendering before the 60-second resync tick. It does not change the host route table.
+It creates a link and default route only inside short-lived network and mount namespaces, drives the release binary against a temporary Xvfb server, and checks that both kernel changes wake rendering before the 60-second resync tick. It does not change the host route table or mounts.
 
 Those commands and the elevated namespace setup are development/CI dependencies only. They are not required to run `dwm_status` in an existing X11 session.
 
