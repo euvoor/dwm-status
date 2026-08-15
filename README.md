@@ -75,6 +75,16 @@ make dev
 Runs the local dev loop from the current directory.
 This target uses `cargo watch`.
 
+Verify a change before committing it:
+
+```bash
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
+cargo build --locked --release
+```
+
+Parser tests use checked-in fixtures under `tests/fixtures`; they do not read the developer machine's current routes, resolver, counters, sensors, or GPU state.
+
 Typical place:
 
 ```bash

@@ -190,4 +190,28 @@ mod tests {
 
         assert_eq!(rates, (0.0, 0.0));
     }
+
+    /// Clamp rates to zero when kernel counters reset.
+    #[test]
+    fn reset_rates_when_counters_decrease() {
+        let status_bar = Arc::new(StatusBar::new());
+        let mut traffic = Traffic::new(status_bar);
+        let observed_at = Instant::now();
+
+        traffic.previous_sample = Some(TrafficSample {
+            iface: "eth0".to_string(),
+            recv_bytes: 2_000,
+            trans_bytes: 3_000,
+            observed_at,
+        });
+
+        let rates = traffic._rates_for(TrafficSample {
+            iface: "eth0".to_string(),
+            recv_bytes: 1_000,
+            trans_bytes: 2_000,
+            observed_at: observed_at + Duration::from_secs(1),
+        });
+
+        assert_eq!(rates, (0.0, 0.0));
+    }
 }

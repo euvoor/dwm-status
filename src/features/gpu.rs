@@ -185,8 +185,9 @@ mod tests {
 
     /// Parse the compact CSV query row from nvidia-smi.
     #[test]
-    fn parse_gpu_csv_row() {
-        let telemetry = _parse_gpu_telemetry("23, 18, 47, 32\n").unwrap();
+    fn parse_first_gpu_from_multirow_fixture() {
+        let telemetry = _parse_gpu_telemetry(include_str!("../../tests/fixtures/nvidia-smi.csv"))
+            .unwrap();
 
         assert_eq!(
             telemetry,

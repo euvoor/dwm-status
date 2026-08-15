@@ -391,7 +391,13 @@ fn _temperature_prefix(file_name: &str) -> Option<String> {
 /// Read one millidegree sysfs temperature entry.
 fn _read_temperature_value(path: &Path) -> Option<i64> {
     let value = _read_trimmed_file(path)?;
-    let value = value.parse::<i64>().ok()?;
+
+    _from_temperature_value(value.as_str())
+}
+
+/// Parse one millidegree sysfs value.
+fn _from_temperature_value(value: &str) -> Option<i64> {
+    let value = value.trim().parse::<i64>().ok()?;
 
     if !_is_sane_temperature(value) {
         return None;
@@ -494,21 +500,37 @@ fn _contains_any(text: &str, tokens: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        _compress_usages, _parse_cpu_snapshot, _score_hwmon_candidate, _score_thermal_candidate,
-        _usage_percent, CpuSample,
+        _compress_usages, _from_temperature_value, _parse_cpu_snapshot, _score_hwmon_candidate,
+        _score_thermal_candidate, _usage_percent, CpuSample,
     };
+
+    /// Parse a sysfs temperature fixture without reading host sensors.
+    #[test]
+    fn parse_temperature_fixture() {
+        let value = _from_temperature_value(include_str!(
+            "../../tests/fixtures/sys/class/hwmon/temp1_input",
+        ));
+
+        assert_eq!(value, Some(47_250));
+    }
 
     /// Parse aggregate and per-core counters from procfs text.
     #[test]
     fn parse_cpu_snapshot_from_proc_stat() {
-        let snapshot = _parse_cpu_snapshot(
-            "cpu  100 20 30 40 10 0 0 0 0 0\ncpu0 50 10 15 20 5 0 0 0 0 0\ncpu1 50 10 15 20 5 0 0 0 0 0\nintr 1\n",
-        )
-        .unwrap();
+        let snapshot = _parse_cpu_snapshot(include_str!("../../tests/fixtures/proc/stat.txt"))
+            .unwrap();
 
         assert_eq!(snapshot.total, CpuSample { total: 200, idle: 50 });
         assert_eq!(snapshot.cores.len(), 2);
         assert_eq!(snapshot.cores[0], CpuSample { total: 100, idle: 25 });
+    }
+
+    /// Reject procfs text without an aggregate CPU row.
+    #[test]
+    fn reject_snapshot_without_aggregate_cpu() {
+        let snapshot = _parse_cpu_snapshot("cpu0 50 10 15 20 5 0 0 0 0 0\n");
+
+        assert!(snapshot.is_err());
     }
 
     /// Keep usage calculations tied to delta counters.
