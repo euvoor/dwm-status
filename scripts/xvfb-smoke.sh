@@ -30,6 +30,7 @@ cat >"$config_path" <<'EOF'
 features = ["clock"]
 
 [clock]
+glyph = " "
 format = "ci-x11-ok-%S"
 timezone = "UTC"
 EOF
@@ -67,7 +68,8 @@ fi
 
 DISPLAY="$display" "$binary" --config "$config_path" 2>"$stderr_path" &
 status_pid=$!
-marker=ci-x11-ok-
+wm_pattern='^WM_NAME = "▏ ci-x11-ok-[0-9]{2}▕"$'
+net_wm_pattern='^_NET_WM_NAME = "▏ ci-x11-ok-[0-9]{2}▕"$'
 wm_name=""
 net_wm_name=""
 
@@ -78,10 +80,14 @@ for _attempt in $(seq 1 50); do
     exit 1
   fi
 
-  wm_name=$(DISPLAY="$display" xprop -root WM_NAME 2>/dev/null || true)
-  net_wm_name=$(DISPLAY="$display" xprop -root _NET_WM_NAME 2>/dev/null || true)
+  wm_name=$(DISPLAY="$display" xprop -root -notype -f WM_NAME 8u WM_NAME 2>/dev/null || true)
+  net_wm_name=$(DISPLAY="$display" xprop -root -notype -f _NET_WM_NAME 8u _NET_WM_NAME 2>/dev/null || true)
+  wm_payload=${wm_name#WM_NAME = }
+  net_wm_payload=${net_wm_name#_NET_WM_NAME = }
 
-  if [[ "$wm_name" == *"$marker"* && "$net_wm_name" == *"$marker"* ]]; then
+  if [[ "$wm_name" =~ $wm_pattern ]] &&
+    [[ "$net_wm_name" =~ $net_wm_pattern ]] &&
+    [[ "$wm_payload" == "$net_wm_payload" ]]; then
     break
   fi
 
@@ -89,8 +95,10 @@ for _attempt in $(seq 1 50); do
 done
 
 
-if [[ "$wm_name" != *"$marker"* || "$net_wm_name" != *"$marker"* ]]; then
-  echo "Timed out waiting for WM_NAME and _NET_WM_NAME" >&2
+if [[ ! "$wm_name" =~ $wm_pattern ]] ||
+  [[ ! "$net_wm_name" =~ $net_wm_pattern ]] ||
+  [[ "$wm_payload" != "$net_wm_payload" ]]; then
+  echo "Timed out waiting for exact matching WM_NAME and _NET_WM_NAME payloads" >&2
   DISPLAY="$display" xprop -root WM_NAME _NET_WM_NAME >&2 || true
   exit 1
 fi
