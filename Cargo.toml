@@ -3,6 +3,10 @@ name = "dwm_status"
 version = "0.1.0"
 description = "An event-driven X11 root-window status feeder for dwm"
 repository = "https://github.com/euvoor/dwm-status"
+license = "MIT"
+readme = "README.md"
+keywords = ["dwm", "x11", "linux", "status-bar", "suckless"]
+categories = ["command-line-utilities"]
 rust-version = "1.85"
 edition = "2021"
 
