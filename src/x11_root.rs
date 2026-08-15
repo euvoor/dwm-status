@@ -40,7 +40,9 @@ impl RootNameWriter {
             AtomEnum::STRING,
             text.as_bytes(),
         )
-        .map_err(|err| format!("Failed to queue WM_NAME update: {err}"))?;
+        .map_err(|err| format!("Failed to queue X11 WM_NAME update: {err}"))?
+        .check()
+        .map_err(|err| format!("Failed to write X11 WM_NAME: {err}"))?;
 
         self.conn.change_property8(
             PropMode::REPLACE,
@@ -49,7 +51,9 @@ impl RootNameWriter {
             self.utf8_string,
             text.as_bytes(),
         )
-        .map_err(|err| format!("Failed to queue _NET_WM_NAME update: {err}"))?;
+        .map_err(|err| format!("Failed to queue X11 _NET_WM_NAME update: {err}"))?
+        .check()
+        .map_err(|err| format!("Failed to write X11 _NET_WM_NAME: {err}"))?;
 
         self.conn.flush()
             .map_err(|err| format!("Failed to flush X11 updates: {err}"))?;

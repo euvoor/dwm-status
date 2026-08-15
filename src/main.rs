@@ -8,38 +8,45 @@ use std::env::{args_os, current_dir, var_os};
 use std::ffi::OsString;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::sync::Arc;
 
-use config::Config;
+use config::{Config, FeatureName};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
 use features::{Clock, Connectivity, Cpu, Gpu, Ram, Traffic};
 
-const SUPPORTED_FEATURES: [&str; 6] = [
-    "connectivity",
-    "traffic",
-    "cpu",
-    "clock",
-    "ram",
-    "gpu",
-];
-
 /// Keep startup flags in one place.
 struct CliArgs {
     config_path: Option<PathBuf>,
 }
 
+struct LoadedConfig {
+    config: Config,
+    path: PathBuf,
+}
+
 /// Read the selected config file.
-fn load_config() -> Result<Config, String> {
+fn _load_config() -> Result<LoadedConfig, String> {
     let cli_args = _parse_cli_args(args_os().skip(1).collect())?;
     let config_path = _resolve_config_path(cli_args.config_path.as_deref())?;
     let config = read_to_string(&config_path)
         .map_err(|err| format!("Failed to read {}: {err}", config_path.display()))?;
 
-    toml::from_str::<Config>(&config)
-        .map_err(|err| format!("Error in {}: {err}", config_path.display()))
+    let config = toml::from_str::<Config>(&config)
+        .map_err(|err| format!("Error in {}: {err}", config_path.display()))?;
+
+    config
+        .validate()
+        .map_err(|err| format!("Error in {}: {err}", config_path.display()))?;
+
+    Ok(LoadedConfig {
+        config,
+        path: config_path,
+    })
 }
 
 /// Parse the supported startup flags.
@@ -156,14 +163,15 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     let mut output: Vec<String> = vec![];
 
     for feature in &config.features {
-        match feature.as_str() {
-            "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
-            "traffic" => output.push(status_bar.traffic.read().await.to_string()),
-            "cpu" => output.push(status_bar.cpu.read().await.to_string()),
-            "clock" => output.push(status_bar.clock.read().await.to_string()),
-            "ram" => output.push(status_bar.ram.read().await.to_string()),
-            "gpu" => output.push(status_bar.gpu.read().await.to_string()),
-            _ => continue,
+        match feature {
+            FeatureName::Connectivity => {
+                output.push(status_bar.connectivity.read().await.to_string())
+            }
+            FeatureName::Traffic => output.push(status_bar.traffic.read().await.to_string()),
+            FeatureName::Cpu => output.push(status_bar.cpu.read().await.to_string()),
+            FeatureName::Clock => output.push(status_bar.clock.read().await.to_string()),
+            FeatureName::Ram => output.push(status_bar.ram.read().await.to_string()),
+            FeatureName::Gpu => output.push(status_bar.gpu.read().await.to_string()),
         };
     }
 
@@ -180,129 +188,125 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     format!("▏{}▕", rendered.join("▕▏"))
 }
 
-/// Run one feature until it stops publishing.
-async fn _run_feature(mut feature: Box<dyn FeatureTrait + Send + Sync>) {
+/// Turn an unexpected worker return into a contextual failure.
+async fn _run_feature(
+    feature_name: FeatureName,
+    mut feature: Box<dyn FeatureTrait + Send + Sync>,
+) -> Result<(), String> {
     feature.pull().await;
-}
-
-/// Reject unknown feature names before worker startup.
-fn _validate_features(config: &Config) -> Result<(), String> {
-    let unsupported = _unsupported_features(config.features.as_slice());
-
-    if unsupported.is_empty() {
-        return Ok(());
-    }
 
     Err(format!(
-        "Unsupported features: {}. Supported features: {}",
-        unsupported.join(", "),
-        SUPPORTED_FEATURES.join(", "),
+        "Feature {} worker returned unexpectedly",
+        feature_name.as_str(),
     ))
 }
 
-/// Collect invalid feature names without reordering the config list.
-fn _unsupported_features(features: &[String]) -> Vec<String> {
-    let mut unsupported = vec![];
-
-    for feature in features {
-        if _is_supported_feature(feature.as_str()) {
-            continue;
-        }
-
-        unsupported.push(feature.clone());
+/// Add feature context to a completed or panicked task.
+fn _worker_exit(
+    feature_name: FeatureName,
+    result: Result<Result<(), String>, tokio::task::JoinError>,
+) -> Result<(), String> {
+    match result {
+        Ok(Ok(())) => Err(format!(
+            "Feature {} worker completed unexpectedly",
+            feature_name.as_str(),
+        )),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(format!(
+            "Feature {} worker task failed: {err}",
+            feature_name.as_str(),
+        )),
     }
-
-    unsupported
 }
 
-/// Keep feature validation in one place.
-fn _is_supported_feature(feature: &str) -> bool {
-    SUPPORTED_FEATURES.contains(&feature)
-}
-
-#[tokio::main]
 /// Start workers and the renderer.
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = match load_config() {
-        Ok(config) => config,
+#[tokio::main]
+async fn main() -> ExitCode {
+    match _run().await {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{err}");
-            return Ok(());
+            ExitCode::FAILURE
         }
-    };
-    if let Err(err) = _validate_features(&config) {
-        eprintln!("{err}");
-        return Ok(());
     }
+}
+
+/// Keep startup failures on one nonzero exit path.
+async fn _run() -> Result<(), String> {
+    let loaded_config = _load_config()?;
+    let config = loaded_config.config;
 
     let status_bar = Arc::new(StatusBar::new());
-    let root_name_writer = match RootNameWriter::connect() {
-        Ok(root_name_writer) => root_name_writer,
-        Err(err) => {
-            eprintln!("{err}");
-            return Ok(());
-        }
-    };
-    let mut resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![];
+    let mut resources: Vec<(FeatureName, Box<dyn FeatureTrait + Send + Sync>)> = vec![];
 
     for feature in &config.features {
-        match feature.as_str() {
-            "connectivity" => {
+        match feature {
+            FeatureName::Connectivity => {
                 let mut connectivity = Connectivity::new(status_bar.clone());
                 connectivity.set_config(config.connectivity.clone());
-                resources.push(Box::new(connectivity));
+                resources.push((*feature, Box::new(connectivity)));
             }
-            "traffic" => {
+            FeatureName::Traffic => {
                 let mut traffic = Traffic::new(status_bar.clone());
                 traffic.set_config(config.traffic.clone());
-                resources.push(Box::new(traffic));
+                resources.push((*feature, Box::new(traffic)));
             }
-            "cpu" => {
+            FeatureName::Cpu => {
                 let mut cpu = Cpu::new(status_bar.clone());
                 cpu.set_config(config.cpu.clone());
-                resources.push(Box::new(cpu));
+                resources.push((*feature, Box::new(cpu)));
             }
-            "clock" => {
+            FeatureName::Clock => {
                 let mut clock = Clock::new(status_bar.clone());
-                if let Err(err) = clock.set_config(config.clock.clone()) {
-                    eprintln!("{err}");
-                    return Ok(());
-                }
-                resources.push(Box::new(clock));
+                clock.set_config(config.clock.clone())
+                    .map_err(|err| format!("Error in {}: {err}", loaded_config.path.display()))?;
+                resources.push((*feature, Box::new(clock)));
             }
-            "ram" => {
+            FeatureName::Ram => {
                 let mut ram = Ram::new(status_bar.clone());
                 ram.set_config(config.ram.clone());
-                resources.push(Box::new(ram));
+                resources.push((*feature, Box::new(ram)));
             }
-            "gpu" => {
+            FeatureName::Gpu => {
                 let mut gpu = Gpu::new(status_bar.clone());
                 gpu.set_config(config.gpu.clone());
-                resources.push(Box::new(gpu));
+                resources.push((*feature, Box::new(gpu)));
             }
-            _ => continue,
         };
     }
 
-    for resource in resources {
-        tokio::spawn(_run_feature(resource));
+    let root_name_writer = RootNameWriter::connect()?;
+
+    let mut workers = FuturesUnordered::new();
+
+    for (feature_name, resource) in resources {
+        let worker = tokio::spawn(_run_feature(feature_name, resource));
+
+        workers.push(async move { (feature_name, worker.await) });
     }
 
     status_bar.redraw.notify_one();
     let mut last_output = String::new();
 
     loop {
-        status_bar.redraw.notified().await;
+        tokio::select! {
+            _ = status_bar.redraw.notified() => {
+                let output = _build_output(status_bar.as_ref(), &config).await;
 
-        let output = _build_output(status_bar.as_ref(), &config).await;
+                if output == last_output {
+                    continue;
+                }
 
-        if output == last_output {
-            continue;
-        }
+                root_name_writer.set_status(&output)?;
+                last_output = output;
+            }
+            worker = workers.next() => {
+                let Some((feature_name, result)) = worker else {
+                    return Err("All feature workers stopped unexpectedly".to_string());
+                };
 
-        match root_name_writer.set_status(&output) {
-            Ok(_) => last_output = output,
-            Err(err) => eprintln!("{err}"),
+                _worker_exit(feature_name, result)?;
+            }
         }
     }
 
@@ -312,7 +316,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{_candidate_config_paths_from, _parse_cli_args, _unsupported_features};
+    use super::{
+        _build_output, _candidate_config_paths_from, _parse_cli_args, _run_feature, _worker_exit,
+    };
+    use crate::config::{Config, FeatureName};
+    use crate::features::FeatureTrait;
+    use crate::status_bar::StatusBar;
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -345,16 +354,69 @@ mod tests {
         );
     }
 
-    /// Keep invalid feature names out of the runtime path.
-    #[test]
-    fn find_unsupported_features() {
-        let unsupported = _unsupported_features(&[
-            "clock".to_string(),
-            "bogus".to_string(),
-            "traffic".to_string(),
-            "old_net_stats".to_string(),
-        ]);
+    /// Preserve config order and the established reverse rendering pass.
+    #[tokio::test]
+    async fn render_features_in_reverse_config_order() {
+        let config = toml::from_str::<Config>(
+            r#"features = ["clock", "cpu"]"#,
+        ).unwrap();
+        let status_bar = StatusBar::new();
 
-        assert_eq!(unsupported, vec!["bogus", "old_net_stats"]);
+        *status_bar.clock.write().await = "clock".to_string();
+        *status_bar.cpu.write().await = "cpu".to_string();
+
+        assert_eq!(_build_output(&status_bar, &config).await, "▏cpu▕▏clock▕");
+    }
+
+    /// Treat a completed infinite worker as a fatal runtime error.
+    #[tokio::test]
+    async fn reject_unexpected_worker_return() {
+        let status_bar = std::sync::Arc::new(StatusBar::new());
+        let worker = ReturningFeature::new(status_bar);
+        let error = _run_feature(FeatureName::Cpu, Box::new(worker))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "Feature cpu worker returned unexpectedly");
+    }
+
+    /// Attach the feature name to a panicked worker task.
+    #[tokio::test]
+    async fn reject_worker_panic() {
+        let status_bar = std::sync::Arc::new(StatusBar::new());
+        let worker = PanickingFeature::new(status_bar);
+        let task = tokio::spawn(_run_feature(FeatureName::Gpu, Box::new(worker)));
+        let error = _worker_exit(FeatureName::Gpu, task.await).unwrap_err();
+
+        assert!(error.contains("Feature gpu worker task failed"));
+        assert!(error.contains("panicked"));
+    }
+
+    struct ReturningFeature;
+
+    #[async_trait::async_trait]
+    impl FeatureTrait for ReturningFeature {
+        /// Construct a worker that returns immediately.
+        fn new(_status_bar: std::sync::Arc<StatusBar>) -> Self {
+            Self
+        }
+
+        /// Simulate an unexpected clean worker return.
+        async fn pull(&mut self) {}
+    }
+
+    struct PanickingFeature;
+
+    #[async_trait::async_trait]
+    impl FeatureTrait for PanickingFeature {
+        /// Construct a worker that panics when polled.
+        fn new(_status_bar: std::sync::Arc<StatusBar>) -> Self {
+            Self
+        }
+
+        /// Simulate an unexpected worker panic.
+        async fn pull(&mut self) {
+            panic!("injected worker panic");
+        }
     }
 }

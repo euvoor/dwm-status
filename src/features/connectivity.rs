@@ -2,14 +2,21 @@ use std::sync::Arc;
 
 use tokio::time::{interval, Duration, MissedTickBehavior};
 
-use crate::config::ConnectivityConfig;
-use crate::network::{read_connectivity_snapshot, spawn_connectivity_events, ConnectivitySnapshot};
+use crate::config::{ConnectivityConfig, ConnectivityFormat};
+use crate::features::feature_trait::{_publish_update, FeatureState};
+use crate::network::{
+    read_connectivity_snapshot,
+    spawn_connectivity_events,
+    ConnectivityEvent,
+    ConnectivitySnapshot,
+};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
 pub struct Connectivity {
     status_bar: Arc<StatusBar>,
     config: ConnectivityConfig,
+    state: FeatureState,
 }
 
 #[async_trait::async_trait]
@@ -19,25 +26,44 @@ impl FeatureTrait for Connectivity {
         Self {
             status_bar,
             config: ConnectivityConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
     /// Publish passive link state.
     async fn pull(&mut self) {
-        let events = spawn_connectivity_events().ok();
-        let mut refresh = interval(Duration::from_secs(self.config.idle.max(1)));
+        let mut events = match spawn_connectivity_events() {
+            Ok(events) => Some(events),
+            Err(err) => {
+                eprintln!("Feature connectivity event stream failed: {err}; using timed resync");
+                None
+            }
+        };
+        let mut refresh = interval(Duration::from_secs(self.config.idle));
         refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        refresh.tick().await;
 
         self._publish_snapshot().await;
 
         loop {
-            if let Some(events) = &events {
+            let mut stopped = None;
+
+            if let Some(events) = events.as_mut() {
                 tokio::select! {
-                    _ = events.notified() => {}
+                    event = events.next() => {
+                        if let ConnectivityEvent::Stopped(reason) = event {
+                            stopped = Some(reason);
+                        }
+                    }
                     _ = refresh.tick() => {}
                 }
             } else {
                 refresh.tick().await;
+            }
+
+            if let Some(reason) = stopped {
+                eprintln!("Feature connectivity event stream stopped: {reason}; using timed resync");
+                events = None;
             }
 
             self._publish_snapshot().await;
@@ -52,21 +78,24 @@ impl Connectivity {
     }
 
     /// Push the latest passive snapshot into the shared slot.
-    async fn _publish_snapshot(&self) {
-        let output = match read_connectivity_snapshot().await {
-            Ok(snapshot) => self._format_output(&snapshot),
-            Err(_) => format!("{}no-net", self.config.glyph),
-        };
+    async fn _publish_snapshot(&mut self) {
+        let sample = read_connectivity_snapshot()
+            .await
+            .map(|snapshot| self._format_output(&snapshot));
+        let update = self.state.update("connectivity", sample);
 
-        *self.status_bar.connectivity.write().await = output;
-        self.status_bar.redraw.notify_one();
+        _publish_update(
+            update,
+            &self.status_bar.connectivity,
+            &self.status_bar.redraw,
+        ).await;
     }
 
     /// Select the configured layout.
     fn _format_output(&self, snapshot: &ConnectivitySnapshot) -> String {
-        let output = match self.config.format.as_str() {
-            "full" => self._to_full_output(snapshot),
-            _ => self._to_compact_output(snapshot),
+        let output = match self.config.format {
+            ConnectivityFormat::Compact => self._to_compact_output(snapshot),
+            ConnectivityFormat::Full => self._to_full_output(snapshot),
         };
 
         format!("{}{}", self.config.glyph, output)

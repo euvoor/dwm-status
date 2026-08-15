@@ -1,0 +1,3 @@
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+enp10s0	00000000	0100A8C0	0003	0	0	1002	00000000	0	0	0
+docker0	000011AC	00000000	0001	0	0	0	0000FFFF	0	0	0

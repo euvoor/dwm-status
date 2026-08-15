@@ -4,14 +4,17 @@ use tokio::process::Command;
 use tokio::time::{interval, Duration};
 
 use crate::config::GpuConfig;
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
-const GPU_QUERY: &str = "utilization.gpu,utilization.memory,temperature.gpu,fan.speed";
+const GPU_QUERY: &str =
+    "utilization.gpu,memory.used,memory.total,temperature.gpu,fan.speed";
 
 pub struct Gpu {
     status_bar: Arc<StatusBar>,
     config: GpuConfig,
+    state: FeatureState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -29,6 +32,7 @@ impl FeatureTrait for Gpu {
         Self {
             status_bar,
             config: GpuConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
@@ -38,10 +42,10 @@ impl FeatureTrait for Gpu {
         interval.tick().await;
 
         loop {
-            let output = self._render_sample().await.unwrap_or_default();
+            let sample = self._render_sample().await;
+            let update = self.state.update("gpu", sample);
 
-            *self.status_bar.gpu.write().await = output;
-            self.status_bar.redraw.notify_one();
+            _publish_update(update, &self.status_bar.gpu, &self.status_bar.redraw).await;
 
             interval.tick().await;
         }
@@ -100,26 +104,29 @@ async fn _read_gpu_telemetry() -> Result<GpuTelemetry, String> {
     let stdout = String::from_utf8(output.stdout)
         .map_err(|err| format!("Invalid nvidia-smi output: {err}"))?;
 
-    _parse_gpu_telemetry(stdout.as_str())
+    _from_gpu_telemetry(stdout.as_str())
 }
 
 /// Parse the first reported GPU from the CSV query output.
-fn _parse_gpu_telemetry(stdout: &str) -> Result<GpuTelemetry, String> {
+fn _from_gpu_telemetry(stdout: &str) -> Result<GpuTelemetry, String> {
     let line = match _first_gpu_line(stdout) {
         Some(line) => line,
         None => return Err("nvidia-smi returned no GPU rows".to_string()),
     };
-    let fields = _split_csv_fields(line);
+    let fields = _from_csv_fields(line);
 
-    if fields.len() < 4 {
+    if fields.len() < 5 {
         return Err(format!("Incomplete GPU telemetry row: {line}"));
     }
 
+    let memory_used = _from_unsigned_value(fields[1].as_str());
+    let memory_total = _from_unsigned_value(fields[2].as_str());
+
     Ok(GpuTelemetry {
-        usage_percent: _parse_percent(fields[0].as_str()),
-        vram_percent: _parse_percent(fields[1].as_str()),
-        temperature_celsius: _parse_temperature(fields[2].as_str()),
-        fan_percent: _parse_percent(fields[3].as_str()),
+        usage_percent: _from_unsigned_value(fields[0].as_str()),
+        vram_percent: _vram_percent(memory_used, memory_total),
+        temperature_celsius: _from_temperature(fields[3].as_str()),
+        fan_percent: _from_unsigned_value(fields[4].as_str()),
     })
 }
 
@@ -137,7 +144,7 @@ fn _first_gpu_line(stdout: &str) -> Option<&str> {
 }
 
 /// Split the simple NVIDIA CSV row without bringing in a parser crate.
-fn _split_csv_fields(line: &str) -> Vec<String> {
+fn _from_csv_fields(line: &str) -> Vec<String> {
     let mut fields = vec![];
 
     for field in line.split(',') {
@@ -147,8 +154,8 @@ fn _split_csv_fields(line: &str) -> Vec<String> {
     fields
 }
 
-/// Parse a GPU percentage field when the driver exposes one.
-fn _parse_percent(value: &str) -> Option<u64> {
+/// Parse an unsigned NVIDIA field when the driver exposes one.
+fn _from_unsigned_value(value: &str) -> Option<u64> {
     if _is_missing_field(value) {
         return None;
     }
@@ -157,12 +164,26 @@ fn _parse_percent(value: &str) -> Option<u64> {
 }
 
 /// Parse a Celsius field when the driver exposes one.
-fn _parse_temperature(value: &str) -> Option<i64> {
+fn _from_temperature(value: &str) -> Option<i64> {
     if _is_missing_field(value) {
         return None;
     }
 
     value.parse::<i64>().ok()
+}
+
+/// Convert used and total frame-buffer memory to whole-percent occupancy.
+fn _vram_percent(used: Option<u64>, total: Option<u64>) -> Option<u64> {
+    let used = used? as u128;
+    let total = total? as u128;
+
+    if total == 0 {
+        return None;
+    }
+
+    let rounded = (used * 100 + total / 2) / total;
+
+    Some(rounded.min(100) as u64)
 }
 
 /// Treat unsupported telemetry values as absent instead of noisy text.
@@ -177,7 +198,7 @@ fn _is_missing_field(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{_parse_gpu_telemetry, Gpu, GpuTelemetry};
+    use super::{_from_gpu_telemetry, _vram_percent, Gpu, GpuTelemetry, GPU_QUERY};
     use crate::config::GpuConfig;
     use crate::FeatureTrait;
     use crate::StatusBar;
@@ -185,8 +206,9 @@ mod tests {
 
     /// Parse the compact CSV query row from nvidia-smi.
     #[test]
-    fn parse_gpu_csv_row() {
-        let telemetry = _parse_gpu_telemetry("23, 18, 47, 32\n").unwrap();
+    fn parse_first_gpu_from_multirow_fixture() {
+        let telemetry = _from_gpu_telemetry(include_str!("../../tests/fixtures/nvidia-smi.csv"))
+            .unwrap();
 
         assert_eq!(
             telemetry,
@@ -202,10 +224,47 @@ mod tests {
     /// Accept partial telemetry when a field is not supported.
     #[test]
     fn parse_gpu_csv_row_with_missing_fan() {
-        let telemetry = _parse_gpu_telemetry("23, 18, 47, N/A\n").unwrap();
+        let telemetry = _from_gpu_telemetry("23, 1475, 8192, 47, N/A\n").unwrap();
 
         assert_eq!(telemetry.fan_percent, None);
         assert_eq!(telemetry.usage_percent, Some(23));
+    }
+
+    /// Query occupancy inputs instead of memory-bus utilization.
+    #[test]
+    fn query_used_and_total_vram() {
+        assert_eq!(
+            GPU_QUERY,
+            "utilization.gpu,memory.used,memory.total,temperature.gpu,fan.speed",
+        );
+    }
+
+    /// Omit VRAM occupancy when either capacity input is unavailable.
+    #[test]
+    fn omit_unsupported_vram_values() {
+        let missing_used = _from_gpu_telemetry("23, N/A, 8192, 47, 32\n").unwrap();
+        let missing_total = _from_gpu_telemetry("23, 1475, N/A, 47, 32\n").unwrap();
+
+        assert_eq!(missing_used.vram_percent, None);
+        assert_eq!(missing_total.vram_percent, None);
+    }
+
+    /// Treat malformed and zero capacities as unavailable.
+    #[test]
+    fn omit_invalid_vram_values() {
+        let malformed = _from_gpu_telemetry("23, bad, 8192, 47, 32\n").unwrap();
+        let zero_total = _from_gpu_telemetry("23, 10, 0, 47, 32\n").unwrap();
+
+        assert_eq!(malformed.vram_percent, None);
+        assert_eq!(zero_total.vram_percent, None);
+    }
+
+    /// Round occupancy to the nearest whole percent and cap it at 100.
+    #[test]
+    fn round_and_bound_vram_percent() {
+        assert_eq!(_vram_percent(Some(1475), Some(8192)), Some(18));
+        assert_eq!(_vram_percent(Some(3), Some(8)), Some(38));
+        assert_eq!(_vram_percent(Some(12), Some(10)), Some(100));
     }
 
     /// Keep the rendered GPU block terse and ordered.

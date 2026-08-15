@@ -3,7 +3,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime as ChronoDateTime, Datelike, Local, LocalResult, TimeZone, Timelike, Utc};
+use chrono::format::{Fixed, Item, Numeric, StrftimeItems};
+use chrono::{DateTime as ChronoDateTime, Local, LocalResult, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use tokio::time::sleep;
 
@@ -15,8 +16,10 @@ pub struct Clock {
     status_bar: Arc<StatusBar>,
     config: ClockConfig,
     timezone: ClockZone,
+    granularity: ClockGranularity,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ClockGranularity {
     Second,
     Minute,
@@ -37,6 +40,7 @@ impl FeatureTrait for Clock {
             status_bar,
             config: ClockConfig::default(),
             timezone: ClockZone::Local,
+            granularity: ClockGranularity::Second,
         }
     }
 
@@ -56,8 +60,12 @@ impl FeatureTrait for Clock {
 impl Clock {
     /// Swap feature settings.
     pub fn set_config(&mut self, config: ClockConfig) -> Result<(), String> {
-        self.timezone = _parse_clock_zone(config.timezone.as_str())?;
+        let granularity = _parse_clock_granularity(config.format.as_str())?;
+        let timezone = _parse_clock_zone(config.timezone.as_str())?;
+
         self.config = config;
+        self.timezone = timezone;
+        self.granularity = granularity;
 
         Ok(())
     }
@@ -120,15 +128,7 @@ impl Clock {
 
     /// Infer the smallest unit visible in the format string.
     fn _granularity(&self) -> ClockGranularity {
-        if _contains_any(self.config.format.as_str(), &_second_tokens()) {
-            return ClockGranularity::Second;
-        }
-
-        if _contains_any(self.config.format.as_str(), &_minute_tokens()) {
-            return ClockGranularity::Minute;
-        }
-
-        ClockGranularity::Day
+        self.granularity
     }
 }
 
@@ -214,25 +214,62 @@ fn _parse_clock_zone(timezone: &str) -> Result<ClockZone, String> {
     }
 }
 
-/// Detect any token from a static format set.
-fn _contains_any(format: &str, tokens: &[&str]) -> bool {
-    for token in tokens {
-        if format.contains(token) {
-            return true;
+/// Validate a Chrono format and find its shortest visible unit.
+fn _parse_clock_granularity(format: &str) -> Result<ClockGranularity, String> {
+    // Chrono hides `%#z` and no-dot fractional seconds behind the same internal item.
+    let cadence_format = format.replace("%#z", "%z");
+    let items = StrftimeItems::new(cadence_format.as_str())
+        .parse()
+        .map_err(|err| format!("Invalid clock format {format:?}: {err}"))?;
+    let mut granularity = ClockGranularity::Day;
+
+    for item in items {
+        if _item_has_second_granularity(&item) {
+            return Ok(ClockGranularity::Second);
+        }
+
+        if _item_has_minute_granularity(&item) {
+            granularity = ClockGranularity::Minute;
         }
     }
 
-    false
+    Ok(granularity)
 }
 
-/// Tokens that usually expose second-level changes.
-fn _second_tokens() -> [&'static str; 7] {
-    ["%S", "%T", "%X", "%c", "%+", "%r", "%f"]
+/// Identify parsed fields that can change within one minute.
+fn _item_has_second_granularity(item: &Item<'_>) -> bool {
+    matches!(
+        item,
+        Item::Numeric(Numeric::Second, _)
+        | Item::Numeric(Numeric::Nanosecond, _)
+        | Item::Numeric(Numeric::Timestamp, _)
+        | Item::Fixed(Fixed::Nanosecond)
+        | Item::Fixed(Fixed::Nanosecond3)
+        | Item::Fixed(Fixed::Nanosecond6)
+        | Item::Fixed(Fixed::Nanosecond9)
+        | Item::Fixed(Fixed::RFC2822)
+        | Item::Fixed(Fixed::RFC3339)
+        | Item::Fixed(Fixed::Internal(_))
+    )
 }
 
-/// Tokens that expose time-of-day without requiring per-second refresh.
-fn _minute_tokens() -> [&'static str; 8] {
-    ["%H", "%I", "%k", "%l", "%M", "%R", "%P", "%p"]
+/// Identify parsed fields that can change within one day.
+fn _item_has_minute_granularity(item: &Item<'_>) -> bool {
+    matches!(
+        item,
+        Item::Numeric(Numeric::Hour, _)
+        | Item::Numeric(Numeric::Hour12, _)
+        | Item::Numeric(Numeric::Minute, _)
+        | Item::Fixed(Fixed::LowerAmPm)
+        | Item::Fixed(Fixed::UpperAmPm)
+        | Item::Fixed(Fixed::TimezoneName)
+        | Item::Fixed(Fixed::TimezoneOffsetColon)
+        | Item::Fixed(Fixed::TimezoneOffsetDoubleColon)
+        | Item::Fixed(Fixed::TimezoneOffsetTripleColon)
+        | Item::Fixed(Fixed::TimezoneOffsetColonZ)
+        | Item::Fixed(Fixed::TimezoneOffset)
+        | Item::Fixed(Fixed::TimezoneOffsetZ)
+    )
 }
 
 /// Round forward to the next second boundary.
@@ -264,11 +301,36 @@ where
     let next_day = now.date_naive() + chrono::Duration::days(1);
     let timezone = now.timezone();
 
-    match timezone.with_ymd_and_hms(next_day.year(), next_day.month(), next_day.day(), 0, 0, 0) {
-        LocalResult::Single(next) => next,
-        LocalResult::Ambiguous(next, _) => next,
-        LocalResult::None => _next_minute_boundary(now + chrono::Duration::days(1)),
+    match _first_instant_of_date(&timezone, next_day) {
+        Some(next) => next,
+        None => _next_minute_boundary(now + chrono::Duration::days(1)),
     }
+}
+
+/// Find the earliest representable wall-clock instant on a local date.
+fn _first_instant_of_date<Tz>(timezone: &Tz, date: NaiveDate) -> Option<ChronoDateTime<Tz>>
+where
+    Tz: TimeZone,
+{
+    let midnight = date.and_hms_opt(0, 0, 0)?;
+
+    for elapsed in 0..86_400 {
+        let local = midnight + chrono::Duration::seconds(elapsed);
+
+        match timezone.from_local_datetime(&local) {
+            LocalResult::Single(instant) => return Some(instant),
+            LocalResult::Ambiguous(first, second) => {
+                if first.timestamp() <= second.timestamp() {
+                    return Some(first);
+                }
+
+                return Some(second);
+            }
+            LocalResult::None => {}
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -287,45 +349,67 @@ mod tests {
     use crate::status_bar::StatusBar;
     use crate::FeatureTrait;
     use chrono::{Datelike, FixedOffset, TimeZone, Timelike, Utc};
+    use chrono_tz::{America, Tz};
     use std::sync::Arc;
 
-    /// Refresh every second when the format shows seconds.
+    /// Recognize every parsed form whose output can change within a minute.
     #[test]
     fn second_granularity_for_second_formats() {
-        let mut clock = Clock::new(Arc::new(StatusBar::new()));
-        clock.set_config(ClockConfig {
-            glyph: String::new(),
-            format: "%H:%M:%S".to_string(),
-            timezone: String::new(),
-        }).unwrap();
+        for format in [
+            "%S", "%s", "%T", "%f", "%.3f", "%.6f", "%.9f", "%3f", "%6f", "%9f", "%+",
+        ] {
+            let clock = _clock_from_format(format);
 
-        assert!(matches!(clock._granularity(), ClockGranularity::Second));
+            assert_eq!(clock._granularity(), ClockGranularity::Second, "{format}");
+        }
     }
 
     /// Refresh every minute when the format hides seconds.
     #[test]
     fn minute_granularity_for_minute_formats() {
-        let mut clock = Clock::new(Arc::new(StatusBar::new()));
-        clock.set_config(ClockConfig {
-            glyph: String::new(),
-            format: "%H:%M".to_string(),
-            timezone: String::new(),
-        }).unwrap();
+        let clock = _clock_from_format("%H:%M");
 
-        assert!(matches!(clock._granularity(), ClockGranularity::Minute));
+        assert_eq!(clock._granularity(), ClockGranularity::Minute);
     }
 
     /// Refresh daily when the format is date-only.
     #[test]
     fn day_granularity_for_date_formats() {
-        let mut clock = Clock::new(Arc::new(StatusBar::new()));
-        clock.set_config(ClockConfig {
-            glyph: String::new(),
-            format: "%Y-%m-%d".to_string(),
-            timezone: String::new(),
-        }).unwrap();
+        let clock = _clock_from_format("%Y-%m-%d");
 
-        assert!(matches!(clock._granularity(), ClockGranularity::Day));
+        assert_eq!(clock._granularity(), ClockGranularity::Day);
+    }
+
+    /// Treat escaped percent directives as literal text.
+    #[test]
+    fn escaped_second_directive_has_day_granularity() {
+        let clock = _clock_from_format("%%S");
+
+        assert_eq!(clock._granularity(), ClockGranularity::Day);
+    }
+
+    /// Refresh zone-only output often enough to cross offset transitions.
+    #[test]
+    fn timezone_directives_have_minute_granularity() {
+        for format in ["%Z", "%z", "%:z", "%::z", "%:::z", "%#z"] {
+            let clock = _clock_from_format(format);
+
+            assert_eq!(clock._granularity(), ClockGranularity::Minute, "{format}");
+        }
+    }
+
+    /// Reject malformed directives while applying configuration.
+    #[test]
+    fn reject_invalid_clock_format() {
+        let mut clock = Clock::new(Arc::new(StatusBar::new()));
+        let error = clock.set_config(ClockConfig {
+            glyph: String::new(),
+            format: "%Q".to_string(),
+            timezone: String::new(),
+        }).unwrap_err();
+
+        assert!(error.contains("Invalid clock format"));
+        assert!(error.contains("%Q"));
     }
 
     /// Align the second refresh to the next whole second.
@@ -365,6 +449,18 @@ mod tests {
         assert_eq!(next.second(), 0);
     }
 
+    /// Use the first real instant when a DST jump removes midnight.
+    #[test]
+    fn next_day_boundary_skips_nonexistent_midnight() {
+        let timezone = America::Sao_Paulo;
+        let now = timezone.with_ymd_and_hms(2018, 11, 3, 12, 0, 0).unwrap();
+        let next = _next_day_boundary(now);
+
+        assert_eq!(next.date_naive().to_string(), "2018-11-04");
+        assert_eq!(next.hour(), 1);
+        assert_eq!(next.minute(), 0);
+    }
+
     /// Use local mode when the timezone string is empty.
     #[test]
     fn parse_empty_timezone_as_local() {
@@ -390,5 +486,30 @@ mod tests {
         let output = _format_clock_value("%H:%M %Z", now);
 
         assert_eq!(output, "10:30 UTC");
+    }
+
+    /// Render the changed zone name on both sides of a DST boundary.
+    #[test]
+    fn render_zone_name_across_dst_transition() {
+        let timezone = America::New_York;
+        let before = Utc.with_ymd_and_hms(2026, 3, 8, 6, 59, 0).unwrap()
+            .with_timezone(&timezone);
+        let after = Utc.with_ymd_and_hms(2026, 3, 8, 7, 0, 0).unwrap()
+            .with_timezone(&timezone);
+
+        assert_eq!(_format_clock_value("%Z", before), "EST");
+        assert_eq!(_format_clock_value("%Z", after), "EDT");
+    }
+
+    /// Build a configured clock for cadence assertions.
+    fn _clock_from_format(format: &str) -> Clock {
+        let mut clock = Clock::new(Arc::new(StatusBar::new()));
+        clock.set_config(ClockConfig {
+            glyph: String::new(),
+            format: format.to_string(),
+            timezone: Tz::UTC.to_string(),
+        }).unwrap();
+
+        clock
     }
 }
