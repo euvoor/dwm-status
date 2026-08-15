@@ -58,6 +58,9 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release
 
+      - name: Verify isolated install behavior
+        run: ./scripts/install-smoke.sh
+
       - name: Install runtime smoke dependencies
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends iproute2 util-linux xvfb x11-utils
 
