@@ -14,6 +14,7 @@ pub struct Ram {
     state: FeatureState,
 }
 
+#[derive(Debug)]
 struct RamSnapshot {
     total: u128,
     used: u128,
@@ -33,6 +34,7 @@ impl FeatureTrait for Ram {
     /// Refresh RAM pressure with a fixed internal cadence.
     async fn pull(&mut self) {
         let mut interval = interval(Duration::from_secs(1));
+        interval.tick().await;
 
         loop {
             let sample = _read_ram_snapshot()
@@ -75,55 +77,64 @@ async fn _read_ram_snapshot() -> Result<RamSnapshot, String> {
 
 /// Parse the RAM fields used by the current status calculation.
 fn _from_meminfo(meminfo: &str) -> Result<RamSnapshot, String> {
-    let mut total = 0;
+    let mut total = None;
+    let mut available = None;
     let mut free = 0;
     let mut buffers = 0;
     let mut cached = 0;
+    let mut reclaimable = 0;
 
     for line in meminfo.lines() {
-        if line.starts_with("MemTotal:") {
-            total = _parse_meminfo_bytes(line);
+        let Some((field, value)) = line.split_once(':') else {
             continue;
-        }
+        };
 
-        if line.starts_with("MemFree:") {
-            free = _parse_meminfo_bytes(line);
-            continue;
-        }
-
-        if line.starts_with("Buffers:") {
-            buffers = _parse_meminfo_bytes(line);
-            continue;
-        }
-
-        if line.starts_with("Cached:") {
-            cached = _parse_meminfo_bytes(line);
+        match field {
+            "MemTotal" => total = Some(_from_meminfo_value(field, value)?),
+            "MemAvailable" => available = Some(_from_meminfo_value(field, value)?),
+            "MemFree" => free = _from_meminfo_value(field, value)?,
+            "Buffers" => buffers = _from_meminfo_value(field, value)?,
+            "Cached" => cached = _from_meminfo_value(field, value)?,
+            "SReclaimable" => reclaimable = _from_meminfo_value(field, value)?,
+            _ => continue,
         }
     }
+
+    let total = total.ok_or_else(|| "MemTotal is missing from /proc/meminfo".to_string())?;
 
     if total == 0 {
-        return Err("MemTotal is missing from /proc/meminfo".to_string());
+        return Err("MemTotal must be greater than zero".to_string());
     }
 
-    let reclaimable = free + buffers + cached;
-    let used = total.saturating_sub(reclaimable);
+    let available = match available {
+        Some(available) => available,
+        None => free
+            .saturating_add(buffers)
+            .saturating_add(cached)
+            .saturating_add(reclaimable),
+    };
+
+    let used = total.saturating_sub(available);
 
     Ok(RamSnapshot { total, used })
 }
 
-/// Parse a `meminfo` byte field from one line.
-fn _parse_meminfo_bytes(line: &str) -> u128 {
-    let value = match line.split_once(':') {
-        Some((_, value)) => value.trim(),
-        None => "0 kB",
-    };
+/// Parse one named `meminfo` value from kibibytes to bytes.
+fn _from_meminfo_value(field: &str, value: &str) -> Result<u128, String> {
+    let mut parts = value.split_whitespace();
+    let raw = parts.next().unwrap_or("");
+    let number = raw
+        .parse::<u128>()
+        .map_err(|_| format!("Invalid {field} value: {raw}"))?;
+    let unit = parts.next().unwrap_or("");
 
-    value
-        .split_whitespace()
-        .next()
-        .and_then(|value| value.parse::<u128>().ok())
-        .unwrap_or(0)
-        .saturating_mul(1024)
+    if unit != "kB" {
+        return Err(format!("Invalid {field} unit: {unit}"));
+    }
+
+    number
+        .checked_mul(1024)
+        .ok_or_else(|| format!("{field} value is too large"))
 }
 
 /// Format bytes with one binary unit digit.
@@ -157,7 +168,7 @@ fn _used_percent(snapshot: &RamSnapshot) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{_from_meminfo, _parse_meminfo_bytes, _used_percent, RamSnapshot};
+    use super::{_from_meminfo, _from_meminfo_value, _used_percent, RamSnapshot};
 
     /// Parse a complete meminfo fixture without reading the host.
     #[test]
@@ -166,7 +177,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(snapshot.total, 1_024_000_000);
-        assert_eq!(snapshot.used, 614_400_000);
+        assert_eq!(snapshot.used, 384_000_000);
+    }
+
+    /// Fall back to free, buffer, cache, and reclaimable slab bytes.
+    #[test]
+    fn parse_legacy_meminfo_fixture() {
+        let snapshot = _from_meminfo(include_str!(
+            "../../tests/fixtures/proc/meminfo_legacy.txt",
+        )).unwrap();
+
+        assert_eq!(snapshot.total, 1_024_000_000);
+        assert_eq!(snapshot.used, 583_680_000);
     }
 
     /// Reject meminfo with a malformed total field.
@@ -174,15 +196,64 @@ mod tests {
     fn reject_meminfo_without_numeric_total() {
         let snapshot = _from_meminfo("MemTotal: unknown kB\nMemFree: 20 kB\n");
 
-        assert!(snapshot.is_err());
+        assert_eq!(
+            snapshot.unwrap_err(),
+            "Invalid MemTotal value: unknown".to_string(),
+        );
+    }
+
+    /// Require the total field before calculating a percentage.
+    #[test]
+    fn reject_missing_memtotal() {
+        let snapshot = _from_meminfo("MemFree: 20 kB\n");
+
+        assert_eq!(
+            snapshot.unwrap_err(),
+            "MemTotal is missing from /proc/meminfo".to_string(),
+        );
+    }
+
+    /// Report a malformed optional field instead of treating it as zero.
+    #[test]
+    fn reject_malformed_available_value() {
+        let snapshot = _from_meminfo(
+            "MemTotal: 100 kB\nMemAvailable: unknown kB\n",
+        );
+
+        assert_eq!(
+            snapshot.unwrap_err(),
+            "Invalid MemAvailable value: unknown".to_string(),
+        );
     }
 
     /// Parse the kernel-style unit suffix from meminfo.
     #[test]
     fn parse_meminfo_kib_line() {
-        let bytes = _parse_meminfo_bytes("MemTotal:       32794828 kB");
+        let bytes = _from_meminfo_value("MemTotal", "32794828 kB").unwrap();
 
         assert_eq!(bytes, 33_581_903_872);
+    }
+
+    /// Saturate inconsistent kernel values instead of exceeding 100%.
+    #[test]
+    fn saturate_available_above_total() {
+        let snapshot = _from_meminfo(
+            "MemTotal: 100 kB\nMemAvailable: 120 kB\n",
+        ).unwrap();
+
+        assert_eq!(snapshot.used, 0);
+        assert_eq!(_used_percent(&snapshot), 0.0);
+    }
+
+    /// Bound the old-kernel fallback when reclaimable fields exceed total.
+    #[test]
+    fn saturate_legacy_available_above_total() {
+        let snapshot = _from_meminfo(
+            "MemTotal: 100 kB\nMemFree: 60 kB\nCached: 60 kB\n",
+        ).unwrap();
+
+        assert_eq!(snapshot.used, 0);
+        assert_eq!(_used_percent(&snapshot), 0.0);
     }
 
     /// Keep the percentage tied to the same used value.
