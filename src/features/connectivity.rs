@@ -36,6 +36,7 @@ impl FeatureTrait for Connectivity {
         };
         let mut refresh = interval(Duration::from_secs(self.config.idle));
         refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        refresh.tick().await;
 
         self._publish_snapshot().await;
 
