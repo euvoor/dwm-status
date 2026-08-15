@@ -8,6 +8,7 @@ use std::env::{args_os, current_dir, var_os};
 use std::ffi::OsString;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use config::Config;
@@ -32,7 +33,7 @@ struct CliArgs {
 }
 
 /// Read the selected config file.
-fn load_config() -> Result<Config, String> {
+fn _load_config() -> Result<Config, String> {
     let cli_args = _parse_cli_args(args_os().skip(1).collect())?;
     let config_path = _resolve_config_path(cli_args.config_path.as_deref())?;
     let config = read_to_string(&config_path)
@@ -220,29 +221,25 @@ fn _is_supported_feature(feature: &str) -> bool {
     SUPPORTED_FEATURES.contains(&feature)
 }
 
-#[tokio::main]
 /// Start workers and the renderer.
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = match load_config() {
-        Ok(config) => config,
+#[tokio::main]
+async fn main() -> ExitCode {
+    match _run().await {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{err}");
-            return Ok(());
+            ExitCode::FAILURE
         }
-    };
-    if let Err(err) = _validate_features(&config) {
-        eprintln!("{err}");
-        return Ok(());
     }
+}
+
+/// Keep startup failures on one nonzero exit path.
+async fn _run() -> Result<(), String> {
+    let config = _load_config()?;
+
+    _validate_features(&config)?;
 
     let status_bar = Arc::new(StatusBar::new());
-    let root_name_writer = match RootNameWriter::connect() {
-        Ok(root_name_writer) => root_name_writer,
-        Err(err) => {
-            eprintln!("{err}");
-            return Ok(());
-        }
-    };
     let mut resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![];
 
     for feature in &config.features {
@@ -264,10 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "clock" => {
                 let mut clock = Clock::new(status_bar.clone());
-                if let Err(err) = clock.set_config(config.clock.clone()) {
-                    eprintln!("{err}");
-                    return Ok(());
-                }
+                clock.set_config(config.clock.clone())?;
                 resources.push(Box::new(clock));
             }
             "ram" => {
@@ -283,6 +277,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => continue,
         };
     }
+
+    let root_name_writer = RootNameWriter::connect()?;
 
     for resource in resources {
         tokio::spawn(_run_feature(resource));

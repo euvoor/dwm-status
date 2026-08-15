@@ -108,7 +108,8 @@ Config lookup order is:
 3. `~/.config/dwm_status/config.toml`
 4. `./config.toml`
 
-If the selected config is missing or invalid, the process prints an error and exits.
+If the selected config is missing or invalid, the process prints an error to stderr and exits nonzero.
+Unsupported arguments, unsupported feature names, invalid clock timezones, and an unavailable X11 session fail the same way.
 
 ## Runtime dependencies
 
