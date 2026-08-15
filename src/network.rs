@@ -8,7 +8,7 @@ use std::sync::Arc;
 use futures_util::stream::{Stream, StreamExt};
 use rtnetlink::{new_multicast_connection, MulticastGroup};
 use tokio::fs::read_to_string;
-use tokio::sync::Notify;
+use tokio::sync::{watch, Notify};
 
 const ROUTE_FLAG_UP: u32 = 0x0001;
 const ROUTE_FLAG_REJECT: u32 = 0x0200;
@@ -113,19 +113,52 @@ struct PrimarySelection {
     has_default_route: bool,
 }
 
+pub enum ConnectivityEvent {
+    Changed,
+    Stopped(String),
+}
+
+pub struct ConnectivityEvents {
+    changed: Arc<Notify>,
+    stopped: watch::Receiver<Option<String>>,
+}
+
+impl ConnectivityEvents {
+    /// Wait for a coalesced kernel change or listener termination.
+    pub async fn next(&mut self) -> ConnectivityEvent {
+        tokio::select! {
+            _ = self.changed.notified() => ConnectivityEvent::Changed,
+            result = self.stopped.changed() => {
+                let reason = match result {
+                    Ok(()) => self.stopped.borrow().clone()
+                        .unwrap_or_else(|| "rtnetlink monitor stopped without a reason".to_string()),
+                    Err(_) => "rtnetlink monitor status channel closed".to_string(),
+                };
+
+                ConnectivityEvent::Stopped(reason)
+            }
+        }
+    }
+}
+
 /// Subscribe to passive kernel network events.
-pub fn spawn_connectivity_events() -> Result<Arc<Notify>, String> {
+pub fn spawn_connectivity_events() -> Result<ConnectivityEvents, String> {
     let (connection, _handle, messages) = match new_multicast_connection(&_connectivity_groups()) {
         Ok(connection) => connection,
         Err(err) => return Err(format!("Failed to open rtnetlink monitor: {err}")),
     };
-    let notify = Arc::new(Notify::new());
-    let event_notify = notify.clone();
+    let changed = Arc::new(Notify::new());
+    let event_changed = changed.clone();
+    let (stopped, stopped_rx) = watch::channel(None);
+    let connection_task = tokio::spawn(_run_connectivity_monitor(connection));
+    let message_task = tokio::spawn(_forward_connectivity_events(messages, event_changed));
 
-    tokio::spawn(_run_connectivity_monitor(connection));
-    tokio::spawn(_forward_connectivity_events(messages, event_notify));
+    tokio::spawn(_observe_connectivity_monitor(connection_task, message_task, stopped));
 
-    Ok(notify)
+    Ok(ConnectivityEvents {
+        changed,
+        stopped: stopped_rx,
+    })
 }
 
 /// Pull a fresh passive connectivity snapshot.
@@ -186,24 +219,51 @@ fn _connectivity_groups() -> [MulticastGroup; 5] {
 }
 
 /// Keep the netlink connection alive for route and link updates.
-async fn _run_connectivity_monitor<F>(connection: F)
+async fn _run_connectivity_monitor<F>(connection: F) -> &'static str
 where
     F: Future<Output = ()> + Send + 'static,
 {
     connection.await;
+
+    "rtnetlink connection stopped"
 }
 
 /// Turn raw netlink traffic into coalesced wakeups.
 async fn _forward_connectivity_events<S, T>(
     mut messages: S,
-    notify: Arc<Notify>,
-) where
+    changed: Arc<Notify>,
+) -> &'static str
+where
     S: Stream<Item = T> + Unpin + Send + 'static,
     T: Send + 'static,
 {
     while messages.next().await.is_some() {
-        notify.notify_one();
+        changed.notify_one();
     }
+
+    "rtnetlink message stream stopped"
+}
+
+/// Convert either background-task exit into feature-visible state.
+async fn _observe_connectivity_monitor(
+    mut connection_task: tokio::task::JoinHandle<&'static str>,
+    mut message_task: tokio::task::JoinHandle<&'static str>,
+    stopped: watch::Sender<Option<String>>,
+) {
+    let reason = tokio::select! {
+        result = &mut connection_task => match result {
+            Ok(reason) => reason.to_string(),
+            Err(err) => format!("rtnetlink connection task failed: {err}"),
+        },
+        result = &mut message_task => match result {
+            Ok(reason) => reason.to_string(),
+            Err(err) => format!("rtnetlink message task failed: {err}"),
+        },
+    };
+
+    connection_task.abort();
+    message_task.abort();
+    let _ = stopped.send(Some(reason));
 }
 
 /// Gather typed default routes across IPv4 and IPv6.
@@ -535,13 +595,22 @@ fn _is_zero_hex(value: &str, width: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::future;
+    use std::sync::Arc;
+
+    use futures_util::stream;
+    use tokio::sync::{watch, Notify};
+    use tokio::time::{timeout, Duration};
 
     use super::{
+        _forward_connectivity_events,
         _from_default_routes_v4,
         _from_default_routes_v6,
         _from_dev_stats,
         _from_dns_state,
+        _observe_connectivity_monitor,
         _route_sort_key,
+        _run_connectivity_monitor,
         _select_primary_iface,
         DefaultRoute,
         DnsState,
@@ -714,6 +783,37 @@ mod tests {
 
         assert_eq!(selection.primary_iface.unwrap().name, "a-wan");
         assert!(!selection.has_default_route);
+    }
+
+    /// Preserve one wakeup while collapsing an event burst.
+    #[tokio::test]
+    async fn coalesce_changes_and_report_stream_termination() {
+        let changed = Arc::new(Notify::new());
+
+        let reason = _forward_connectivity_events(
+            stream::iter([(), (), ()]),
+            changed.clone(),
+        ).await;
+
+        timeout(Duration::from_millis(50), changed.notified()).await.unwrap();
+        assert!(timeout(Duration::from_millis(10), changed.notified()).await.is_err());
+        assert_eq!(reason, "rtnetlink message stream stopped");
+    }
+
+    /// Report a connection future that returns unexpectedly.
+    #[tokio::test]
+    async fn report_connection_termination() {
+        let (stopped, mut stopped_rx) = watch::channel(None);
+        let connection_task = tokio::spawn(_run_connectivity_monitor(future::ready(())));
+        let message_task = tokio::spawn(future::pending::<&'static str>());
+
+        _observe_connectivity_monitor(connection_task, message_task, stopped).await;
+
+        stopped_rx.changed().await.unwrap();
+        assert_eq!(
+            stopped_rx.borrow().as_deref(),
+            Some("rtnetlink connection stopped"),
+        );
     }
 
     /// Classify resolver state from fixture text.
