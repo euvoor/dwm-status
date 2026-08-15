@@ -4,7 +4,12 @@ use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::config::{ConnectivityConfig, ConnectivityFormat};
 use crate::features::feature_trait::{_publish_update, FeatureState};
-use crate::network::{read_connectivity_snapshot, spawn_connectivity_events, ConnectivitySnapshot};
+use crate::network::{
+    read_connectivity_snapshot,
+    spawn_connectivity_events,
+    ConnectivityEvent,
+    ConnectivitySnapshot,
+};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
@@ -27,7 +32,7 @@ impl FeatureTrait for Connectivity {
 
     /// Publish passive link state.
     async fn pull(&mut self) {
-        let events = match spawn_connectivity_events() {
+        let mut events = match spawn_connectivity_events() {
             Ok(events) => Some(events),
             Err(err) => {
                 eprintln!("Feature connectivity event stream failed: {err}; using timed resync");
@@ -41,13 +46,24 @@ impl FeatureTrait for Connectivity {
         self._publish_snapshot().await;
 
         loop {
-            if let Some(events) = &events {
+            let mut stopped = None;
+
+            if let Some(events) = events.as_mut() {
                 tokio::select! {
-                    _ = events.notified() => {}
+                    event = events.next() => {
+                        if let ConnectivityEvent::Stopped(reason) = event {
+                            stopped = Some(reason);
+                        }
+                    }
                     _ = refresh.tick() => {}
                 }
             } else {
                 refresh.tick().await;
+            }
+
+            if let Some(reason) = stopped {
+                eprintln!("Feature connectivity event stream stopped: {reason}; using timed resync");
+                events = None;
             }
 
             self._publish_snapshot().await;

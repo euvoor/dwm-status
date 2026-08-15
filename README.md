@@ -91,7 +91,15 @@ The X11 smoke test requires `Xvfb` and `xprop` (usually packaged as `xvfb` and `
 ./scripts/xvfb-smoke.sh
 ```
 
-Those commands are development/CI dependencies only. They are not required to run `dwm_status` in an existing X11 session.
+The passive-netlink smoke test also requires `ip`, `unshare`, and non-interactive `sudo` access:
+
+```bash
+./scripts/netlink-smoke.sh
+```
+
+It creates a link and default route only inside a short-lived network namespace, drives the release binary against a temporary Xvfb server, and checks that both kernel changes wake rendering before the 60-second resync tick. It does not change the host route table.
+
+Those commands and the elevated namespace setup are development/CI dependencies only. They are not required to run `dwm_status` in an existing X11 session.
 
 The smoke test publishes both root-window properties, kills its temporary X server, and requires `dwm_status` to exit nonzero on the next write.
 
@@ -117,7 +125,7 @@ Unsupported arguments, unsupported feature names, invalid clock timezones, and a
 
 CPU, RAM, GPU, traffic, and connectivity reads are recoverable. On the first failed sample, the affected block disappears and one feature-named error is written to stderr. Repeated failures stay quiet. The first later success republishes the block and writes one recovery message.
 
-If the connectivity netlink listener cannot start, timed resync remains active and stderr reports that fallback once.
+If the connectivity netlink listener cannot start or later stops, timed resync remains active and stderr reports that fallback once. Event-driven refresh does not retry during that process lifetime.
 
 A worker panic, an unexpected worker return, or a failed X11 root-property write is fatal: the process reports the cause and exits nonzero. The last root-window value may remain visible until `dwm_status` or another root-name writer starts again. If you want automatic restart, put the process under your session supervisor.
 
@@ -130,6 +138,7 @@ Required:
 
 Feature-specific:
 
+- `connectivity`: permission to open a read-only Linux `NETLINK_ROUTE` socket for immediate updates; restrictive containers and sandboxes may deny it, in which case `connectivity.idle` remains the refresh cadence
 - `gpu`: `nvidia-smi`
 
 Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
@@ -288,7 +297,8 @@ This is the privacy-first network feature.
 - It does not talk to third-party hosts.
 - It reports local state only.
 - The sample config uses `󰖩 ` as its glyph.
-- It publishes once immediately, then wakes on kernel route, address, and link changes when netlink is available.
+- It publishes once immediately, then subscribes to Linux link, IPv4/IPv6 address, and IPv4/IPv6 route multicast groups. This listener is read-only and does not need `CAP_NET_ADMIN`.
+- Netlink changes are coalesced into refresh wakeups. Listener startup failure or termination falls back to `idle` after one stderr diagnostic.
 - `idle` is the fallback resync interval for DNS changes and missed events.
 - It accepts only active, non-reject IPv4 and IPv6 defaults with valid zero prefixes, then picks the up interface with the lowest route metric.
 - Equal metrics sort by interface name, then IPv4 before IPv6. If no usable default exists, the fallback is the first alphabetically named up, non-loopback interface and the block reports `no-gw`.

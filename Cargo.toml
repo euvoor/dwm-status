@@ -14,4 +14,4 @@ serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
 x11rb = "0.14.0"
 futures-util = "0.3.34"
-rtnetlink = "0.20.0"
+rtnetlink = "0.22.0"

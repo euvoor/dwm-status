@@ -39,11 +39,14 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release
 
-      - name: Install X11 smoke dependencies
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends xvfb x11-utils
+      - name: Install runtime smoke dependencies
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends iproute2 util-linux xvfb x11-utils
 
       - name: Verify X11 root properties
         run: ./scripts/xvfb-smoke.sh
+
+      - name: Verify passive netlink wakeups
+        run: ./scripts/netlink-smoke.sh
 
   audit:
     name: RustSec audit
