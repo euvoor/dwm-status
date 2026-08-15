@@ -55,10 +55,7 @@ impl FeatureTrait for Cpu {
         interval.tick().await;
 
         loop {
-            let output = match self._render_sample().await {
-                Ok(output) => output,
-                Err(_) => String::new(),
-            };
+            let output = self._render_sample().await.unwrap_or_default();
 
             *self.status_bar.cpu.write().await = output;
             self.status_bar.redraw.notify_one();
@@ -379,10 +376,7 @@ fn _read_trimmed_file(path: &Path) -> Option<String> {
 
 /// Extract the final path component as UTF-8.
 fn _file_name(path: &Path) -> Option<String> {
-    match path.file_name() {
-        Some(file_name) => Some(file_name.to_string_lossy().to_string()),
-        None => None,
-    }
+    path.file_name().map(|file_name| file_name.to_string_lossy().to_string())
 }
 
 /// Match `temp*_input` files and return the shared prefix.

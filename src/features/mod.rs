@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 pub(super) mod feature_trait;
 pub(super) use feature_trait::FeatureTrait;
 

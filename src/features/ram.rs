@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use byte_unit::Byte;
 use tokio::fs::read_to_string;
 use tokio::time::{interval, Duration};
 
@@ -111,10 +110,12 @@ fn _parse_meminfo_bytes(line: &str) -> u128 {
         None => "0 kB",
     };
 
-    match Byte::parse_str(value, true) {
-        Ok(value) => value.as_u128(),
-        Err(_) => 0,
-    }
+    value
+        .split_whitespace()
+        .next()
+        .and_then(|value| value.parse::<u128>().ok())
+        .unwrap_or(0)
+        .saturating_mul(1024)
 }
 
 /// Format bytes with one binary unit digit.
@@ -155,7 +156,7 @@ mod tests {
     fn parse_meminfo_kib_line() {
         let bytes = _parse_meminfo_bytes("MemTotal:       32794828 kB");
 
-        assert_eq!(bytes, 32_794_828_000);
+        assert_eq!(bytes, 33_581_903_872);
     }
 
     /// Keep the percentage tied to the same used value.

@@ -138,7 +138,10 @@ pub async fn read_dev_stats() -> Result<HashMap<String, DevStats>, String> {
             continue;
         }
 
-        let line = line.split_once(':').unwrap();
+        let line = match line.split_once(':') {
+            Some(line) => line,
+            None => continue,
+        };
         let iface = line.0.trim().to_string();
         let mut cols = line.1.split_whitespace();
         let recv_bytes = _parse_u128(cols.next());

@@ -31,19 +31,21 @@ Periodic sampler features now run on a fixed cadence instead of `work + sleep` d
 
 ## Install
 
-Build it:
+Build and install it:
 
 ```bash
-cargo build --release
+make install
 ```
 
-One straightforward setup:
+This installs:
 
 ```bash
-install -d ~/.local/bin ~/.config/dwm_status
-install -m755 target/release/dwm_status ~/.local/bin/dwm_status
-install -m644 config.toml ~/.config/dwm_status/config.toml
+~/.local/bin/dwm_status
+~/.config/dwm_status/config.toml
 ```
+
+The binary is replaced on each install. An existing config file is left untouched.
+Building requires Rust, Cargo, `make`, and the standard `install` utility.
 
 If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
 For example:
@@ -57,6 +59,21 @@ Then start it from your `dwm` session:
 ```bash
 ~/.local/bin/dwm_status &
 ```
+
+Local workflows:
+
+```bash
+make
+```
+
+Runs the release build from the current directory with `./config.toml`.
+
+```bash
+make dev
+```
+
+Runs the local dev loop from the current directory.
+This target uses `cargo watch`.
 
 Typical place:
 
@@ -277,7 +294,7 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 
 ## Current constraints
 
-- Unsupported feature names still panic.
+- Unsupported feature names print an error with the supported names and exit before connecting to X11.
 - Missing optional commands can make a feature lose part of its output.
 - `gpu` is still NVIDIA-specific.
 - The status line is currently rendered in reverse `features` order.

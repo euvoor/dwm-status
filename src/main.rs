@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 mod config;
 mod features;
 mod network;
@@ -18,6 +16,15 @@ use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
 use features::{Clock, Connectivity, Cpu, Gpu, Ram, Traffic};
+
+const SUPPORTED_FEATURES: [&str; 6] = [
+    "connectivity",
+    "traffic",
+    "cpu",
+    "clock",
+    "ram",
+    "gpu",
+];
 
 /// Keep startup flags in one place.
 struct CliArgs {
@@ -156,7 +163,7 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
             "clock" => output.push(status_bar.clock.read().await.to_string()),
             "ram" => output.push(status_bar.ram.read().await.to_string()),
             "gpu" => output.push(status_bar.gpu.read().await.to_string()),
-            name => unimplemented!("Unsupported feature: {}", name),
+            _ => continue,
         };
     }
 
@@ -178,6 +185,41 @@ async fn _run_feature(mut feature: Box<dyn FeatureTrait + Send + Sync>) {
     feature.pull().await;
 }
 
+/// Reject unknown feature names before worker startup.
+fn _validate_features(config: &Config) -> Result<(), String> {
+    let unsupported = _unsupported_features(config.features.as_slice());
+
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Unsupported features: {}. Supported features: {}",
+        unsupported.join(", "),
+        SUPPORTED_FEATURES.join(", "),
+    ))
+}
+
+/// Collect invalid feature names without reordering the config list.
+fn _unsupported_features(features: &[String]) -> Vec<String> {
+    let mut unsupported = vec![];
+
+    for feature in features {
+        if _is_supported_feature(feature.as_str()) {
+            continue;
+        }
+
+        unsupported.push(feature.clone());
+    }
+
+    unsupported
+}
+
+/// Keep feature validation in one place.
+fn _is_supported_feature(feature: &str) -> bool {
+    SUPPORTED_FEATURES.contains(&feature)
+}
+
 #[tokio::main]
 /// Start workers and the renderer.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -188,6 +230,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     };
+    if let Err(err) = _validate_features(&config) {
+        eprintln!("{err}");
+        return Ok(());
+    }
 
     let status_bar = Arc::new(StatusBar::new());
     let root_name_writer = match RootNameWriter::connect() {
@@ -234,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 gpu.set_config(config.gpu.clone());
                 resources.push(Box::new(gpu));
             }
-            name => unimplemented!("Unsupported feature: {}", name),
+            _ => continue,
         };
     }
 
@@ -266,7 +312,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{_candidate_config_paths_from, _parse_cli_args};
+    use super::{_candidate_config_paths_from, _parse_cli_args, _unsupported_features};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -297,5 +343,18 @@ mod tests {
                 PathBuf::from("/work/tree/config.toml"),
             ]
         );
+    }
+
+    /// Keep invalid feature names out of the runtime path.
+    #[test]
+    fn find_unsupported_features() {
+        let unsupported = _unsupported_features(&[
+            "clock".to_string(),
+            "bogus".to_string(),
+            "traffic".to_string(),
+            "old_net_stats".to_string(),
+        ]);
+
+        assert_eq!(unsupported, vec!["bogus", "old_net_stats"]);
     }
 }

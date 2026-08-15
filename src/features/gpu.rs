@@ -38,10 +38,7 @@ impl FeatureTrait for Gpu {
         interval.tick().await;
 
         loop {
-            let output = match self._render_sample().await {
-                Ok(output) => output,
-                Err(_) => String::new(),
-            };
+            let output = self._render_sample().await.unwrap_or_default();
 
             *self.status_bar.gpu.write().await = output;
             self.status_bar.redraw.notify_one();
