@@ -4,6 +4,7 @@ use tokio::process::Command;
 use tokio::time::{interval, Duration};
 
 use crate::config::GpuConfig;
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
@@ -12,6 +13,7 @@ const GPU_QUERY: &str = "utilization.gpu,utilization.memory,temperature.gpu,fan.
 pub struct Gpu {
     status_bar: Arc<StatusBar>,
     config: GpuConfig,
+    state: FeatureState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -29,6 +31,7 @@ impl FeatureTrait for Gpu {
         Self {
             status_bar,
             config: GpuConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
@@ -38,10 +41,10 @@ impl FeatureTrait for Gpu {
         interval.tick().await;
 
         loop {
-            let output = self._render_sample().await.unwrap_or_default();
+            let sample = self._render_sample().await;
+            let update = self.state.update("gpu", sample);
 
-            *self.status_bar.gpu.write().await = output;
-            self.status_bar.redraw.notify_one();
+            _publish_update(update, &self.status_bar.gpu, &self.status_bar.redraw).await;
 
             interval.tick().await;
         }

@@ -12,6 +12,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use config::{Config, FeatureName};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
@@ -179,9 +180,35 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     format!("▏{}▕", rendered.join("▕▏"))
 }
 
-/// Run one feature until it stops publishing.
-async fn _run_feature(mut feature: Box<dyn FeatureTrait + Send + Sync>) {
+/// Turn an unexpected worker return into a contextual failure.
+async fn _run_feature(
+    feature_name: FeatureName,
+    mut feature: Box<dyn FeatureTrait + Send + Sync>,
+) -> Result<(), String> {
     feature.pull().await;
+
+    Err(format!(
+        "Feature {} worker returned unexpectedly",
+        feature_name.as_str(),
+    ))
+}
+
+/// Add feature context to a completed or panicked task.
+fn _worker_exit(
+    feature_name: FeatureName,
+    result: Result<Result<(), String>, tokio::task::JoinError>,
+) -> Result<(), String> {
+    match result {
+        Ok(Ok(())) => Err(format!(
+            "Feature {} worker completed unexpectedly",
+            feature_name.as_str(),
+        )),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(format!(
+            "Feature {} worker task failed: {err}",
+            feature_name.as_str(),
+        )),
+    }
 }
 
 /// Start workers and the renderer.
@@ -201,64 +228,75 @@ async fn _run() -> Result<(), String> {
     let config = _load_config()?;
 
     let status_bar = Arc::new(StatusBar::new());
-    let mut resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![];
+    let mut resources: Vec<(FeatureName, Box<dyn FeatureTrait + Send + Sync>)> = vec![];
 
     for feature in &config.features {
         match feature {
             FeatureName::Connectivity => {
                 let mut connectivity = Connectivity::new(status_bar.clone());
                 connectivity.set_config(config.connectivity.clone());
-                resources.push(Box::new(connectivity));
+                resources.push((*feature, Box::new(connectivity)));
             }
             FeatureName::Traffic => {
                 let mut traffic = Traffic::new(status_bar.clone());
                 traffic.set_config(config.traffic.clone());
-                resources.push(Box::new(traffic));
+                resources.push((*feature, Box::new(traffic)));
             }
             FeatureName::Cpu => {
                 let mut cpu = Cpu::new(status_bar.clone());
                 cpu.set_config(config.cpu.clone());
-                resources.push(Box::new(cpu));
+                resources.push((*feature, Box::new(cpu)));
             }
             FeatureName::Clock => {
                 let mut clock = Clock::new(status_bar.clone());
                 clock.set_config(config.clock.clone())?;
-                resources.push(Box::new(clock));
+                resources.push((*feature, Box::new(clock)));
             }
             FeatureName::Ram => {
                 let mut ram = Ram::new(status_bar.clone());
                 ram.set_config(config.ram.clone());
-                resources.push(Box::new(ram));
+                resources.push((*feature, Box::new(ram)));
             }
             FeatureName::Gpu => {
                 let mut gpu = Gpu::new(status_bar.clone());
                 gpu.set_config(config.gpu.clone());
-                resources.push(Box::new(gpu));
+                resources.push((*feature, Box::new(gpu)));
             }
         };
     }
 
     let root_name_writer = RootNameWriter::connect()?;
 
-    for resource in resources {
-        tokio::spawn(_run_feature(resource));
+    let mut workers = FuturesUnordered::new();
+
+    for (feature_name, resource) in resources {
+        let worker = tokio::spawn(_run_feature(feature_name, resource));
+
+        workers.push(async move { (feature_name, worker.await) });
     }
 
     status_bar.redraw.notify_one();
     let mut last_output = String::new();
 
     loop {
-        status_bar.redraw.notified().await;
+        tokio::select! {
+            _ = status_bar.redraw.notified() => {
+                let output = _build_output(status_bar.as_ref(), &config).await;
 
-        let output = _build_output(status_bar.as_ref(), &config).await;
+                if output == last_output {
+                    continue;
+                }
 
-        if output == last_output {
-            continue;
-        }
+                root_name_writer.set_status(&output)?;
+                last_output = output;
+            }
+            worker = workers.next() => {
+                let Some((feature_name, result)) = worker else {
+                    return Err("All feature workers stopped unexpectedly".to_string());
+                };
 
-        match root_name_writer.set_status(&output) {
-            Ok(_) => last_output = output,
-            Err(err) => eprintln!("{err}"),
+                _worker_exit(feature_name, result)?;
+            }
         }
     }
 
@@ -268,8 +306,11 @@ async fn _run() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{_build_output, _candidate_config_paths_from, _parse_cli_args};
-    use crate::config::Config;
+    use super::{
+        _build_output, _candidate_config_paths_from, _parse_cli_args, _run_feature, _worker_exit,
+    };
+    use crate::config::{Config, FeatureName};
+    use crate::features::FeatureTrait;
     use crate::status_bar::StatusBar;
     use std::ffi::OsString;
     use std::path::PathBuf;
@@ -315,5 +356,57 @@ mod tests {
         *status_bar.cpu.write().await = "cpu".to_string();
 
         assert_eq!(_build_output(&status_bar, &config).await, "▏cpu▕▏clock▕");
+    }
+
+    /// Treat a completed infinite worker as a fatal runtime error.
+    #[tokio::test]
+    async fn reject_unexpected_worker_return() {
+        let status_bar = std::sync::Arc::new(StatusBar::new());
+        let worker = ReturningFeature::new(status_bar);
+        let error = _run_feature(FeatureName::Cpu, Box::new(worker))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "Feature cpu worker returned unexpectedly");
+    }
+
+    /// Attach the feature name to a panicked worker task.
+    #[tokio::test]
+    async fn reject_worker_panic() {
+        let status_bar = std::sync::Arc::new(StatusBar::new());
+        let worker = PanickingFeature::new(status_bar);
+        let task = tokio::spawn(_run_feature(FeatureName::Gpu, Box::new(worker)));
+        let error = _worker_exit(FeatureName::Gpu, task.await).unwrap_err();
+
+        assert!(error.contains("Feature gpu worker task failed"));
+        assert!(error.contains("panicked"));
+    }
+
+    struct ReturningFeature;
+
+    #[async_trait::async_trait]
+    impl FeatureTrait for ReturningFeature {
+        /// Construct a worker that returns immediately.
+        fn new(_status_bar: std::sync::Arc<StatusBar>) -> Self {
+            Self
+        }
+
+        /// Simulate an unexpected clean worker return.
+        async fn pull(&mut self) {}
+    }
+
+    struct PanickingFeature;
+
+    #[async_trait::async_trait]
+    impl FeatureTrait for PanickingFeature {
+        /// Construct a worker that panics when polled.
+        fn new(_status_bar: std::sync::Arc<StatusBar>) -> Self {
+            Self
+        }
+
+        /// Simulate an unexpected worker panic.
+        async fn pull(&mut self) {
+            panic!("injected worker panic");
+        }
     }
 }

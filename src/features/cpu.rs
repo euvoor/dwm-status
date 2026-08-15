@@ -6,6 +6,7 @@ use tokio::fs::read_to_string;
 use tokio::time::{interval, Duration};
 
 use crate::config::CpuConfig;
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
@@ -18,6 +19,7 @@ pub struct Cpu {
     previous_total: CpuSample,
     previous_cores: Vec<CpuSample>,
     config: CpuConfig,
+    state: FeatureState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -46,6 +48,7 @@ impl FeatureTrait for Cpu {
             previous_total: CpuSample::default(),
             previous_cores: vec![],
             config: CpuConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
@@ -55,10 +58,10 @@ impl FeatureTrait for Cpu {
         interval.tick().await;
 
         loop {
-            let output = self._render_sample().await.unwrap_or_default();
+            let sample = self._render_sample().await;
+            let update = self.state.update("cpu", sample);
 
-            *self.status_bar.cpu.write().await = output;
-            self.status_bar.redraw.notify_one();
+            _publish_update(update, &self.status_bar.cpu, &self.status_bar.redraw).await;
 
             interval.tick().await;
         }

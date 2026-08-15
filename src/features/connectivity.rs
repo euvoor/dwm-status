@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::config::{ConnectivityConfig, ConnectivityFormat};
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::network::{read_connectivity_snapshot, spawn_connectivity_events, ConnectivitySnapshot};
 use crate::FeatureTrait;
 use crate::StatusBar;
@@ -10,6 +11,7 @@ use crate::StatusBar;
 pub struct Connectivity {
     status_bar: Arc<StatusBar>,
     config: ConnectivityConfig,
+    state: FeatureState,
 }
 
 #[async_trait::async_trait]
@@ -19,12 +21,19 @@ impl FeatureTrait for Connectivity {
         Self {
             status_bar,
             config: ConnectivityConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
     /// Publish passive link state.
     async fn pull(&mut self) {
-        let events = spawn_connectivity_events().ok();
+        let events = match spawn_connectivity_events() {
+            Ok(events) => Some(events),
+            Err(err) => {
+                eprintln!("Feature connectivity event stream failed: {err}; using timed resync");
+                None
+            }
+        };
         let mut refresh = interval(Duration::from_secs(self.config.idle));
         refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -52,14 +61,17 @@ impl Connectivity {
     }
 
     /// Push the latest passive snapshot into the shared slot.
-    async fn _publish_snapshot(&self) {
-        let output = match read_connectivity_snapshot().await {
-            Ok(snapshot) => self._format_output(&snapshot),
-            Err(_) => format!("{}no-net", self.config.glyph),
-        };
+    async fn _publish_snapshot(&mut self) {
+        let sample = read_connectivity_snapshot()
+            .await
+            .map(|snapshot| self._format_output(&snapshot));
+        let update = self.state.update("connectivity", sample);
 
-        *self.status_bar.connectivity.write().await = output;
-        self.status_bar.redraw.notify_one();
+        _publish_update(
+            update,
+            &self.status_bar.connectivity,
+            &self.status_bar.redraw,
+        ).await;
     }
 
     /// Select the configured layout.

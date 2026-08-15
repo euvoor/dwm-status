@@ -4,6 +4,7 @@ use std::time::Instant;
 use tokio::time::{interval, Duration};
 
 use crate::config::TrafficConfig;
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::network::{read_dev_stats, read_primary_interface};
 use crate::FeatureTrait;
 use crate::StatusBar;
@@ -12,6 +13,7 @@ pub struct Traffic {
     status_bar: Arc<StatusBar>,
     previous_sample: Option<TrafficSample>,
     config: TrafficConfig,
+    state: FeatureState,
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +32,7 @@ impl FeatureTrait for Traffic {
             status_bar,
             previous_sample: None,
             config: TrafficConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
@@ -39,10 +42,10 @@ impl FeatureTrait for Traffic {
         interval.tick().await;
 
         loop {
-            let output = self._render_sample().await.unwrap_or_default();
+            let sample = self._render_sample().await;
+            let update = self.state.update("traffic", sample);
 
-            *self.status_bar.traffic.write().await = output;
-            self.status_bar.redraw.notify_one();
+            _publish_update(update, &self.status_bar.traffic, &self.status_bar.redraw).await;
 
             interval.tick().await;
         }
