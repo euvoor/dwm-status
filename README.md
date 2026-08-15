@@ -126,6 +126,7 @@ A worker panic, an unexpected worker return, or a failed X11 root-property write
 Required:
 
 - a working X11 session with `DISPLAY` and X authority available
+- a filesystem Unix-domain X socket or TCP X endpoint; x11rb 0.14 no longer tries Linux abstract Unix sockets
 
 Feature-specific:
 
@@ -134,6 +135,8 @@ Feature-specific:
 Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
 
 No external renderer command is required now. The binary talks to X directly.
+
+Every rendered change replaces both `WM_NAME` and `_NET_WM_NAME` on the X root window with the same status bytes. This is shared mutable X11 state: `xsetroot -name`, another status feeder, or any other root-name writer races with `dwm_status`, and the last writer wins.
 
 ## Config
 
