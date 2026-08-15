@@ -49,6 +49,19 @@ Building requires Rust 1.85 or newer, Cargo, `make`, and the standard `install` 
 
 Cargo 1.84 and older cannot parse the edition-2024 manifests in the locked dependency graph, so they may stop at a dependency-manifest error before reporting this package's `rust-version`. Upgrade Rust instead of regenerating the lockfile.
 
+Supported `make install` overrides:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `PREFIX` | `$HOME/.local` | Base used by the default `BINDIR`; it does not relocate config. |
+| `BINDIR` | `$(PREFIX)/bin` | Binary destination directory. |
+| `XDG_CONFIG_HOME` | `$HOME/.config` | Base used by the default `CONFIG_DIR`; it is independent of `PREFIX`. |
+| `CONFIG_DIR` | `$(XDG_CONFIG_HOME)/dwm_status` | Config destination directory. |
+| `CONFIG_FILE` | `$(CONFIG_DIR)/config.toml` | Config destination path; if it is outside `CONFIG_DIR`, its parent must already exist. |
+| `BIN` | `dwm_status` | Destination filename only; the Cargo artifact remains `target/release/dwm_status`. |
+
+`make install` builds the release artifact in the repository, creates the two destination directories, replaces the destination binary with mode 755, and creates the config with mode 644 only when `CONFIG_FILE` does not already exist.
+
 If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
 For example:
 
@@ -75,7 +88,7 @@ make dev
 ```
 
 Runs the local dev loop from the current directory.
-This target uses `cargo watch`.
+This target requires `cargo-watch` (`cargo install cargo-watch`). It is a development tool, not a runtime dependency.
 
 Verify a change before committing it:
 
