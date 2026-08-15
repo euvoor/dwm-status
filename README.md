@@ -1,124 +1,44 @@
 # dwm_status
 
-`dwm_status` is a small Rust status feeder for `dwm`.
+`dwm_status` is a Linux/X11 status feeder for `dwm`. It reads local machine state, formats one plain-text line, and replaces `WM_NAME` and `_NET_WM_NAME` on the X root window. It does not draw a bar and does not use a bar protocol.
 
-It does one thing: collect local machine state, assemble a plain text status line, and push it into the X root window name over X11.
+The root name is framed with `▏` and `▕`. Feature blocks are joined with `▕▏`, empty blocks are skipped, and `features` is rendered in reverse:
 
-The design target is the usual `dwm` setup:
+```toml
+features = ["clock", "cpu"]
+```
 
-- plain text instead of a bar protocol
-- one config file you can hand-edit
-- local state first
-- no active network probing by default
-- no extra daemon layer just to draw text
+```text
+▏42% ▂▄▆█▕▏Sat 15 Aug 2026 13:45:00 UTC▕
+```
 
-The current tree is Linux/X11-specific. That is intentional.
+Put the feature you want on the right first in `features`. If every enabled feature is empty or unavailable, the payload is `▏▕`.
 
-## Current feature set
+## Install and start
 
-- `connectivity`
-- `clock`
-- `ram`
-- `cpu`
-- `gpu`
-- `traffic`
+Build requirements:
 
-`connectivity` is passive. It reads kernel and resolver state, but it does not send packets.
-
-Rendering is event-driven. Features publish their own updates, and the root name is only rewritten when the final bar string changes.
-
-Periodic sampler features now run on a fixed cadence instead of `work + sleep` drift.
-
-## Install
-
-Build and install it:
+- Linux
+- Rust 1.85 or newer and Cargo
+- `make`
+- the standard `install` utility
 
 ```bash
+git clone https://github.com/euvoor/dwm-status.git
+cd dwm-status
 make install
 ```
 
-This installs:
+The default install writes:
 
-```bash
+```text
 ~/.local/bin/dwm_status
 ~/.config/dwm_status/config.toml
 ```
 
-The binary is replaced on each install. An existing config file is left untouched.
-Building requires Rust 1.85 or newer, Cargo, `make`, and the standard `install` utility. CI tests the locked dependency graph on exactly Rust 1.85.0 and runs the full lint, audit, and runtime smoke suite on the latest stable toolchain.
+The release binary is replaced on every install with mode 755. The config is created with mode 644 only when the destination file does not exist; `make install` never overwrites an existing config.
 
-Cargo 1.84 and older cannot parse the edition-2024 manifests in the locked dependency graph, so they may stop at a dependency-manifest error before reporting this package's `rust-version`. Upgrade Rust instead of regenerating the lockfile.
-
-Supported `make install` overrides:
-
-| Variable | Default | Effect |
-|---|---|---|
-| `PREFIX` | `$HOME/.local` | Base used by the default `BINDIR`; it does not relocate config. |
-| `BINDIR` | `$(PREFIX)/bin` | Binary destination directory. |
-| `XDG_CONFIG_HOME` | `$HOME/.config` | Base used by the default `CONFIG_DIR`; it is independent of `PREFIX`. |
-| `CONFIG_DIR` | `$(XDG_CONFIG_HOME)/dwm_status` | Config destination directory. |
-| `CONFIG_FILE` | `$(CONFIG_DIR)/config.toml` | Config destination path; if it is outside `CONFIG_DIR`, its parent must already exist. |
-| `BIN` | `dwm_status` | Destination filename only; the Cargo artifact remains `target/release/dwm_status`. |
-
-`make install` builds the release artifact in the repository, creates the two destination directories, replaces the destination binary with mode 755, and creates the config with mode 644 only when `CONFIG_FILE` does not already exist.
-
-If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
-For example:
-
-```c
-static const char *fonts[] = { "FiraCode Nerd Font Mono:style=Regular:size=10" };
-```
-
-Then start it from your `dwm` session:
-
-```bash
-~/.local/bin/dwm_status &
-```
-
-Local workflows:
-
-```bash
-make
-```
-
-Runs the release build from the current directory with `./config.toml`.
-
-```bash
-make dev
-```
-
-Runs the local dev loop from the current directory.
-This target requires `cargo-watch` (`cargo install cargo-watch`). It is a development tool, not a runtime dependency.
-
-Verify a change before committing it:
-
-```bash
-cargo test --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
-cargo build --locked --release
-```
-
-Parser tests use checked-in fixtures under `tests/fixtures`; they do not read the developer machine's current routes, resolver, counters, sensors, or GPU state.
-
-The X11 smoke test requires `Xvfb` and `xprop` (usually packaged as `xvfb` and `x11-utils`):
-
-```bash
-./scripts/xvfb-smoke.sh
-```
-
-The passive-netlink smoke test also requires `ip`, `unshare`, and non-interactive `sudo` access:
-
-```bash
-./scripts/netlink-smoke.sh
-```
-
-It creates a link and default route only inside short-lived network and mount namespaces, drives the release binary against a temporary Xvfb server, and checks that both kernel changes wake rendering before the 60-second resync tick. It does not change the host route table or mounts.
-
-Those commands and the elevated namespace setup are development/CI dependencies only. They are not required to run `dwm_status` in an existing X11 session.
-
-The smoke test publishes both root-window properties, kills its temporary X server, and requires `dwm_status` to exit nonzero on the next write.
-
-Typical place:
+Start it inside the X session, before `dwm):
 
 ```bash
 # ~/.xinitrc
@@ -126,152 +46,137 @@ Typical place:
 exec dwm
 ```
 
-Config lookup order is:
-
-1. `--config /path/to/config.toml`
-2. `$XDG_CONFIG_HOME/dwm_status/config.toml`
-3. `~/.config/dwm_status/config.toml`
-4. `./config.toml`
-
-If the selected config is missing or invalid, the process prints an error to stderr and exits nonzero.
-Unsupported arguments, unsupported feature names, invalid clock timezones, and an unavailable X11 session fail the same way.
-
-## Runtime failure policy
-
-CPU, RAM, GPU, traffic, and connectivity reads are recoverable. On the first failed sample, the affected block disappears and one feature-named error is written to stderr. Repeated failures stay quiet. The first later success republishes the block and writes one recovery message.
-
-If the connectivity netlink listener cannot start or later stops, timed resync remains active and stderr reports that fallback once. Event-driven refresh does not retry during that process lifetime.
-
-A worker panic, an unexpected worker return, or a failed X11 root-property write is fatal: the process reports the cause and exits nonzero. The last root-window value may remain visible until `dwm_status` or another root-name writer starts again. If you want automatic restart, put the process under your session supervisor.
-
-## Runtime dependencies
-
-Required:
-
-- a working X11 session with `DISPLAY` and X authority available
-- a filesystem Unix-domain X socket or TCP X endpoint; x11rb 0.14 no longer tries Linux abstract Unix sockets
-
-Feature-specific:
-
-- `connectivity`: permission to open a read-only Linux `NETLINK_ROUTE` socket for immediate updates; restrictive containers and sandboxes may deny it, in which case `connectivity.idle` remains the refresh cadence
-- `gpu`: `nvidia-smi`
-
-Everything else is read from Linux interfaces such as `/proc`, `/sys`, and `/etc/resolv.conf`.
-
-No external renderer command is required now. The binary talks to X directly.
-
-Every rendered change replaces both `WM_NAME` and `_NET_WM_NAME` on the X root window with the same status bytes. This is shared mutable X11 state: `xsetroot -name`, another status feeder, or any other root-name writer races with `dwm_status`, and the last writer wins.
-
-## Config
-
-Config is strict TOML. Unknown keys, unknown feature names, duplicate features, an empty feature list, invalid connectivity layouts, and `connectivity.idle = 0` are startup errors. Partial feature tables are valid; omitted keys use the defaults below.
-
-You can point to a specific file with:
-
-```bash
-dwm_status --config /path/to/config.toml
-```
-
-Example:
-
-```toml
-# Current code renders the final bar in reverse feature order.
-features = [
-  "connectivity",
-  "clock",
-  "ram",
-  "cpu",
-  "gpu",
-  "traffic",
-]
-
-[connectivity]
-glyph = "󰖩 "
-idle = 1
-format = "compact"
-show_iface = true
-show_route = true
-show_dns = true
-show_kind = true
-
-[clock]
-glyph = " "
-format = "%a %d %b %Y %X %Z"
-timezone = ""
-
-[ram]
-glyph = "󰍛 "
-
-[cpu]
-glyph = " "
-sparkline_width = 0
-
-[gpu]
-glyph = "󰢮 "
-
-[traffic]
-glyph = "󰖟 "
-```
-
-| Key | Default | Valid values / effect |
-| --- | --- | --- |
-| `features` | required | Non-empty, unique list drawn from `connectivity`, `traffic`, `cpu`, `clock`, `ram`, and `gpu`. Config order is preserved; final output is rendered in reverse order. |
-| `connectivity.glyph` | `""` | Text prepended to the connectivity block. |
-| `connectivity.idle` | `1` | Resync interval in seconds; must be greater than zero. |
-| `connectivity.format` | `"compact"` | `"compact"` or `"full"`. |
-| `connectivity.show_iface` | `true` | Include the selected interface name. |
-| `connectivity.show_route` | `true` | Include default-route state. |
-| `connectivity.show_dns` | `true` | Include resolver state. |
-| `connectivity.show_kind` | `true` | Include interface type. |
-| `clock.glyph` | `""` | Text prepended to the clock block. |
-| `clock.format` | `"%a %d %b %Y %X %Z"` | A validated `chrono`/`strftime` format string. Invalid directives stop startup before X11 is opened. |
-| `clock.timezone` | `""` | Empty for local time, or an IANA timezone such as `Europe/Berlin` or `UTC`. |
-| `ram.glyph` | `""` | Text prepended to the RAM block. |
-| `cpu.glyph` | `""` | Text prepended to the CPU block. |
-| `cpu.sparkline_width` | `8` | `0` for one glyph per logical CPU; a positive value groups the graph to that width. |
-| `gpu.glyph` | `""` | Text prepended to the GPU block. |
-| `traffic.glyph` | `""` | Text prepended to the traffic block. |
-
-## Output format
-
-The bar writer wraps the whole line with `▏` and `▕`, and joins enabled feature outputs with `▕▏`.
-
-So if two features emit `A` and `B`, the root name becomes:
-
-```text
-▏B▕▏A▕
-```
-
-That reversal is current behavior, not documentation drift.
-
-The renderer itself is no longer on a fixed one-second loop. Redraws happen when a feature publishes a new value.
-`connectivity` now wakes on kernel route and link events, and uses `idle` as its slow resync interval.
-
-The sample `connectivity`, `clock`, `ram`, `cpu`, `gpu`, and `traffic` glyphs assume a Nerd Font-capable status font.
-For `dwm`, a matching line in `config.h` is:
+The sample glyphs require a Nerd Font-capable `dwm` font:
 
 ```c
 static const char *fonts[] = { "FiraCode Nerd Font Mono:style=Regular:size=10" };
 ```
 
-If your bar font still does not carry them, replace them or set `glyph = ""`.
+Set any `glyph` to `""` if the font does not contain it.
 
-## Symbol reference
+### Install overrides
 
-### Connectivity
+The binary prefix and XDG config root are independent.
 
-Compact mode uses short labels:
+| Variable | Default | Effect |
+|---|---|---|
+| `PREFIX` | `$HOME/.local` | Base used by the default `BINDIR`; it does not relocate config. |
+| `BINDIR` | `$(PREFIX)/bin` | Binary destination directory. |
+| `XDG_CONFIG_HOME` | `$HOME/.config` | Base used by the default `CONFIG_DIR`; it is independent of `PREFIX`. |
+| `CONFIG_DIR` | `$(XDG_CONFIG_HOME)/dwm_status` | Config destination directory. |
+| `CONFIG_FILE` | `$(CONFIG_DIR)/config.toml` | Config destination path. If it is outside `CONFIG_DIR`, its parent must already exist. |
+| `BIN` | `dwm_status` | Destination filename only. Cargo always builds `target/release/dwm_status`. |
 
-- `W` = wireless interface
-- `E` = ethernet interface
-- `T` = tunnel-style interface
-- `N` = other interface type
-- `gw` = a usable default route exists on an up interface
-- `no-gw` = no usable default route exists
-- `dns` = direct resolver addresses in `resolv.conf`
-- `stub` = loopback resolver only, for example `127.0.0.53`
-- `mixed` = both loopback and direct resolver entries found
-- `no-dns` = no `nameserver` lines found
+For example:
+
+```bash
+make install \
+  BINDIR="$HOME/bin" \
+  CONFIG_DIR="$HOME/.config/dwm_status" \
+  BIN=dwm-status
+```
+
+A bare `sudo make install` uses root's environment and can target root-owned paths. Pass explicit destinations if installing outside your user account.
+
+If config is installed under a non-default `XDG_CONFIG_HOME`, export the same value when starting `dwm_status` or pass the installed file with `--config`.
+
+Cargo 1.84 and older cannot parse the edition-2024 manifests in the locked dependency graph. They can stop at a dependency-manifest error before reporting this package's declared [`rust-version`](https://doc.rust-lang.org/cargo/reference/rust-version.html). Upgrade Rust instead of regenerating `Cargo.lock`.
+
+## Runtime contract
+
+Required:
+
+- a working X11 session
+- `DISPLAY` and matching X authority
+- a filesystem Unix-domain X socket or TCP X endpoint; x11rb 0.14 does not try Linux abstract X sockets
+
+Feature-specific:
+
+- `connectivity` opens a route-netlink socket used only for multicast reads; ordinary Linux users do not need `CAP_NET_ADMIN`
+- `gpu` runs `nvidia-smi` once per sample and is NVIDIA-only
+
+All other data comes from Linux `/proc`, `/sys`, and `/etc/resolv.conf`.
+
+### Root-window ownership
+
+Each changed final line replaces both properties with the same bytes:
+
+- `WM_NAME`, using the legacy `STRING` property type
+- `_NET_WM_NAME`, using `UTF8_STRING`
+
+The two property writes are sequential, not atomic. Separate `xprop` calls during frequent updates can observe adjacent rendered generations.
+
+This is shared mutable X11 state. `xsetroot -name`, another status process, or any other root-name writer races with `dwm_status`; the last writer wins. No external renderer or `xsetroot` subprocess is involved.
+
+Read the values without changing them:
+
+```bash
+xprop -root -notype -f WM_NAME 8u WM_NAME
+xprop -root -notype -f _NET_WM_NAME 8u _NET_WM_NAME
+```
+
+The renderer writes only when the complete payload changes. A failed X write is fatal. The previous root name can remain visible after exit until another writer replaces it.
+
+## Config discovery
+
+Select a file explicitly with either spelling:
+
+```bash
+~/.local/bin/dwm_status --config /path/to/config.toml
+~/.local/bin/dwm_status -c /path/to/config.toml
+```
+
+Without an explicit path, the first existing file wins:
+
+1. `$XDG_CONFIG_HOME/dwm_status/config.toml`, when `XDG_CONFIG_HOME` is set
+2. `$HOME/.config/dwm_status/config.toml`, when `HOME` is set
+3. `./config.toml` in the process working directory
+
+Duplicate candidate paths are removed. A missing explicit file or a search with no match is a startup error; the error names the attempted path or prints the actual search list.
+
+Config is strict TOML. Unknown top-level or feature keys, unknown feature names, duplicate features, an empty or missing `features` list, invalid value types, an unsupported connectivity format, `connectivity.idle = 0`, an invalid clock format, and an unknown clock timezone all stop startup before X11 is opened. Feature tables can be omitted or partial; omitted keys use the defaults below.
+
+Minimal example:
+
+```toml
+# Visual order is CPU, then clock.
+features = ["clock", "cpu"]
+
+[clock]
+format = "%H:%M"
+
+[cpu]
+sparkline_width = 8
+```
+
+The checked-in [`config.toml`](config.toml) enables every feature and supplies the sample glyphs.
+
+## Config reference
+
+All type and validation failures below are fatal startup errors. “Recoverable” means the block disappears on the first failed sample, one contextual message is written to stderr, repeated failures stay quiet, and the first later success reports recovery and republishes the block.
+
+| Key | Type and default | Valid values / output effect | Cadence | Failure behavior |
+|---|---|---|---|---|
+| `features` | required array of strings | Non-empty, unique entries from `connectivity`, `traffic`, `cpu`, `clock`, `ram`, and `gpu`; rendered in reverse list order. | Startup only. | Missing, empty, duplicate, or unknown entries are fatal. |
+| `connectivity.glyph` | string, `""` | Prepended verbatim. | Immediate sample, netlink wake, or `idle` tick. | Snapshot reads are recoverable. |
+| `connectivity.idle` | unsigned integer, `1` | Slow resync interval in seconds; must be greater than zero. | Timer uses this many seconds and skips missed ticks. | Zero or an invalid integer is fatal. |
+| `connectivity.format` | string, `"compact"` | `"compact"` or `"full"`. | Applied on every connectivity render. | Any other value is fatal. |
+| `connectivity.show_iface` | boolean, `true` | Show the selected interface name. | Applied on every connectivity render. | Invalid type is fatal. |
+| `connectivity.show_route` | boolean, `true` | Show `gw`/`no-gw` or `route:yes`/`route:no`. | Applied on every connectivity render. | Invalid type is fatal. |
+| `connectivity.show_dns` | boolean, `true` | Show resolver classification. | Applied on every connectivity render. | Invalid type is fatal. |
+| `connectivity.show_kind` | boolean, `true` | Show the interface class. | Applied on every connectivity render. | Invalid type is fatal. |
+| `clock.glyph` | string, `""` | Prepended verbatim to the trimmed formatted value. | Immediate, then next visible format boundary. | Invalid type is fatal. |
+| `clock.format` | string, `"%a %d %b %Y %X %Z"` | A [Chrono strftime format](https://docs.rs/chrono/0.4.45/chrono/format/strftime/index.html). | Second, minute, or local-date boundary, inferred from parsed directives. | Invalid directives are fatal. |
+| `clock.timezone` | string, `""` | Empty means machine local time; otherwise a [chrono-tz name](https://docs.rs/chrono-tz/0.10.4/chrono_tz/enum.Tz.html), such as `Europe/Berlin` or `UTC`. | Applied on every clock render, including DST transitions. | Unknown names are fatal. |
+| `ram.glyph` | string, `""` | Prepended verbatim. | Immediate, then every second. | `/proc/meminfo` reads and parsing are recoverable. |
+| `cpu.glyph` | string, `""` | Prepended verbatim. | Immediate, then every second. | `/proc/stat` reads and parsing are recoverable; missing temperature is not a failure. |
+| `cpu.sparkline_width` | unsigned integer, `8` | `0` means one glyph per logical CPU; a positive value caps width by averaging buckets when there are more cores than columns. | Applied on every CPU render. | Invalid type is fatal. |
+| `gpu.glyph` | string, `""` | Prepended verbatim. | Immediate, then every second. | Command, exit-status, encoding, and required-row failures are recoverable. |
+| `traffic.glyph` | string, `""` | Prepended verbatim. | Immediate, then every second. | Route, sysfs, and procfs reads are recoverable; no selected interface yields an empty block. |
+
+## Feature semantics
+
+### `connectivity`
 
 Typical compact output:
 
@@ -281,104 +186,200 @@ T:wg0 gw dns
 E:enp10s0 no-gw dns
 ```
 
-### Traffic
+Compact tokens:
 
-- `↓` = receive rate
-- `↑` = transmit rate
+- `W`: `/sys/class/net/IFACE/wireless` exists
+- `T`: the interface name begins with `wg`, `tun`, `tap`, `ppp`, `tailscale`, or `zt`
+- `E`: fallback class for a non-loopback interface that is neither detected wireless nor matched as a tunnel; it is not proof of physical Ethernet
+- `N`: other
+- `gw` / `no-gw`: a usable default route does / does not exist on the selected up interface
+- `dns`: one or more direct resolver addresses
+- `stub`: loopback resolver addresses only
+- `mixed`: loopback and direct resolver addresses
+- `no-dns`: no valid resolver address
 
-Example:
+Full mode uses labeled values such as:
+
+```text
+kind:wifi iface:wlp4s0 link:up route:yes dns:stub
+```
+
+Kind labels are `wifi`, `ethernet`, `tunnel`, and `other`. With no selected interface, compact mode emits `no-iface` and full mode emits `iface:none`. The no-interface sentinel remains visible even when interface/kind fields are disabled.
+
+Behavior and data sources:
+
+- It sends no packets and contacts no remote host. It is local state, not proof of Internet reachability.
+- It reads IPv4 defaults from `/proc/net/route`, IPv6 defaults from `/proc/net/ipv6_route`, interface names and link traits from `/sys/class/net`, counters from `/proc/net/dev`, and resolvers from `/etc/resolv.conf`.
+- A route must have a zero destination/prefix, be marked up, not be marked reject, and refer to an up interface.
+- The lowest metric wins. Ties use interface name, then IPv4 before IPv6.
+- Without a usable default, the first alphabetically named up, non-loopback interface is selected and the route token reports no gateway.
+- Carrier `1` is treated as up when a carrier file exists. Otherwise `operstate` values `up` and `unknown` are treated as up.
+- Resolver parsing accepts a valid IP address as the second field of a `nameserver` directive. Comments, malformed addresses, and other directives are ignored.
+- A read-only route-netlink listener subscribes to link, IPv4/IPv6 address, and IPv4/IPv6 route multicast groups. Bursts coalesce into wakeups.
+- DNS has no kernel event subscription. `idle` supplies DNS refresh, slow resync, and missed-event recovery.
+- If the listener cannot open or later stops, one diagnostic is printed and timed resync continues for the rest of that process. The listener is not retried.
+
+### `traffic`
 
 ```text
 󰖟 ↓12.4M ↑1.1M
 ```
 
-### CPU
-
-The CPU sparkline uses:
-
-```text
-▁▂▃▄▅▆▇█
-```
-
-Left to right means low to high CPU activity, either per core or grouped by config. `█` is the 100% ceiling.
-
-## Feature notes
-
-### `connectivity`
-
-This is the privacy-first network feature.
-
-- It does not ping anything.
-- It does not talk to third-party hosts.
-- It reports local state only.
-- The sample config uses `󰖩 ` as its glyph.
-- It publishes once immediately, then subscribes to Linux link, IPv4/IPv6 address, and IPv4/IPv6 route multicast groups. This listener is read-only and does not need `CAP_NET_ADMIN`.
-- Netlink changes are coalesced into refresh wakeups. Listener startup failure or termination falls back to `idle` after one stderr diagnostic.
-- `idle` is the fallback resync interval for DNS changes and missed events.
-- It accepts only active, non-reject IPv4 and IPv6 defaults with valid zero prefixes, then picks the up interface with the lowest route metric.
-- Equal metrics sort by interface name, then IPv4 before IPv6. If no usable default exists, the fallback is the first alphabetically named up, non-loopback interface and the block reports `no-gw`.
-- Resolver state comes only from exact `nameserver ADDRESS` directives in `/etc/resolv.conf`; comments and malformed addresses are ignored.
-- Tunnel detection is generic and based on interface naming patterns such as `wg*`, `tun*`, `tap*`, `ppp*`, `tailscale*`, and `zt*`.
-
-Use it as an honest local indicator, not as proof that the wider Internet is reachable.
-
-### `clock`
-
-- Uses `chrono` formatting.
-- The sample config uses ` ` as its glyph.
-- Defaults to the machine's local time.
-- `timezone = ""` uses the machine's local timezone.
-- Any non-empty `timezone` must be a named zone such as `Europe/Berlin` or `UTC`.
-- Refresh cadence comes from Chrono's parsed format items, so escaped percent signs remain literals.
-- Seconds, epoch timestamps, fractional seconds, and aliases containing them wake on the next second boundary.
-- Hour, minute, AM/PM, and timezone fields wake on the next minute boundary. This keeps zone names and offsets current across DST changes.
-- Date-only and literal formats wake at the first representable instant of the next local date, including dates where an offset transition removes midnight.
-
-### `ram`
-
-- Renders `used · used%` as one compact line.
-- The sample config uses `󰍛 ` as its glyph.
-- Samples immediately at startup, then once per second without a config knob.
-- Values come from one [`/proc/meminfo` snapshot](https://docs.kernel.org/filesystems/proc.html#meminfo).
-- Used RAM is `MemTotal - MemAvailable`. On kernels without `MemAvailable`, available RAM falls back to `MemFree + Buffers + Cached + SReclaimable`.
-- Kernel `kB` values are converted to bytes; the compact `K`, `M`, `G`, and larger output labels use powers of 1024.
+- `↓` is receive rate and `↑` is transmit rate.
+- Values are bytes per second. Labels `B`, `K`, `M`, `G`, `T`, and `P` use powers of 1024; the output omits the literal `/s`.
+- It reads `/proc/net/dev` and uses the same route/interface selection as `connectivity`.
+- The first sample and a primary-interface change produce zero rates. A decreasing/reset counter holds that direction at zero. A missing selected interface produces an empty block.
+- Rates use actual elapsed monotonic time between samples.
 
 ### `cpu`
 
-- Renders `usage% sparkline temp` as one compact line.
-- The sample config uses ` ` as its glyph.
-- Uses a fixed internal one-second cadence.
-- Usage comes from `/proc/stat`.
-- Usage is `100 × (Δtotal - Δidle) / Δtotal`, clamped to 0–100. `total` counts user through steal once; `idle` is idle plus iowait; guest and guest-nice are excluded because Linux already includes them in user and nice accounting.
-- `sparkline_width = 0` renders one glyph per logical CPU.
-- Any positive `sparkline_width` groups the sparkline to that many columns.
-- Temperature is read directly from `/sys/class/hwmon` and `/sys/class/thermal` when the kernel exposes a sane CPU sensor.
-- If no CPU temperature can be identified, the block omits it instead of shelling out to a tool.
+```text
+ 42% ▁▂▄▇ 55°
+```
+
+- Usage and the sparkline come from one `/proc/stat` snapshot.
+- Usage is `100 × (Δtotal - Δidle) / Δtotal`, clamped to 0–100 and rounded to a whole percent.
+- `total` counts user through steal once; `idle` is idle plus iowait. Guest and guest-nice are excluded because Linux already includes them in user and nice.
+- The first sample compares the kernel counters with zero, so it represents boot-to-date average CPU use. Later samples are one-second deltas.
+- The sparkline uses `▁▂▃▄▅▆▇█`; `█` is the 100% ceiling.
+- `sparkline_width = 0` renders one glyph per logical CPU. A positive width averages contiguous core buckets only when the core count exceeds that width.
+- Temperature is read directly from plausible CPU/package sensors under `/sys/class/hwmon`, falling back to `/sys/class/thermal`. Values not strictly between 0°C and 150°C are ignored.
+- If no CPU temperature can be identified, only the temperature suffix disappears. No external sensor command is run.
+
+### `ram`
+
+```text
+󰍛 5.3G · 34%
+```
+
+- Values come from one [`/proc/meminfo` snapshot](https://docs.kernel.org/filesystems/proc.html#meminfo).
+- Used RAM is `MemTotal - MemAvailable`.
+- If `MemAvailable` is absent, available RAM is `MemFree + Buffers + Cached + SReclaimable`.
+- Kernel `kB` values are multiplied by 1024.
+- Byte labels `B`, `K`, `M`, `G`, `T`, and `P` use powers of 1024. The byte value has one decimal above bytes; percentage is rounded to a whole number.
 
 ### `gpu`
 
-- NVIDIA-only today.
-- Renders `gpu-busy% · V: occupied% · T: temp° · F: fan%` as one compact line.
-- Example: `󰢮 23% · V: 18% · T: 47° · F: 32%`.
-- The sample config uses `󰢮 ` as its glyph.
-- Uses a fixed internal one-second cadence.
-- Runs one `nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,fan.speed --format=csv,noheader,nounits` process per sample.
-- `V:` is [frame-buffer occupancy](https://docs.nvidia.com/deploy/nvidia-smi/index.html#fb-memory-usage): `memory.used / memory.total`, rounded to the nearest whole percent and clamped to 0–100. It is not NVIDIA's memory-bus utilization metric.
-- Uses the first GPU row reported by `nvidia-smi`.
-- Drops unsupported fields such as fan speed, malformed memory values, and zero memory totals instead of printing noisy placeholders.
+```text
+󰢮 23% · V: 18% · T: 47° · F: 32%
+```
 
-### `traffic`
+- This feature is NVIDIA-only.
+- Every sample runs:
 
-- Renders `↓recv ↑trans` as one compact line.
-- The sample config uses `󰖟 ` as its glyph.
-- Uses a fixed internal one-second cadence.
-- Reads counters from `/proc/net/dev`.
-- Uses the same metric-aware primary-interface selection as `connectivity`.
-- Resets cleanly when the primary interface changes.
+```bash
+nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,fan.speed --format=csv,noheader,nounits
+```
 
-## Current constraints
+- Only the first non-empty GPU row is used.
+- The leading percentage is `utilization.gpu`.
+- `V:` is [frame-buffer occupancy](https://docs.nvidia.com/deploy/nvidia-smi/index.html#fb-memory-usage): `memory.used / memory.total`, rounded to the nearest whole percent and clamped to 0–100. It is not NVIDIA memory-bus utilization.
+- `T:` is GPU temperature in Celsius and `F:` is fan percentage.
+- Unsupported, malformed, or zero-capacity optional fields are omitted.
+- If GPU utilization itself is unsupported or malformed, the block is empty. A missing command, nonzero command exit, invalid output encoding, missing row, or incomplete row uses the recoverable failure policy.
 
-- Unsupported feature names print an error with the supported names and exit before connecting to X11.
-- Missing optional commands can make a feature lose part of its output.
-- `gpu` is still NVIDIA-specific.
-- The status line is currently rendered in reverse `features` order.
+### `clock`
+
+- Formatting uses [Chrono strftime semantics](https://docs.rs/chrono/0.4.45/chrono/format/strftime/index.html).
+- The formatted value is trimmed before `glyph` is prepended.
+- `timezone = ""` uses the machine timezone. A non-empty value uses the named chrono-tz zone.
+- `%Z` reports `UTC` for a zero offset that Chrono formats numerically.
+- Seconds, timestamps, fractional seconds, RFC formats, and aliases containing them wake at the next second boundary.
+- Hour, minute, AM/PM, offset, and timezone fields wake at the next minute boundary.
+- Date-only and literal formats wake at the first representable instant of the next local date, including offset transitions that remove midnight.
+
+## Failure policy
+
+Config, clock format/timezone validation, and the initial X11 connection are startup-fatal.
+
+Connectivity snapshots, traffic, CPU, RAM, and GPU use transition-only health reporting:
+
+1. the first failed sample clears that feature block and prints `Feature NAME failed: ...`
+2. repeated failures print nothing
+3. the first successful sample restores the block and prints `Feature NAME recovered`
+
+A feature worker panic, a feature worker returning, all workers stopping, or any root-property write/flush failure is fatal. The process prints context and exits nonzero. Use a session supervisor if automatic restart is required.
+
+## Troubleshooting
+
+### `Failed to connect to X11`
+
+Run `dwm_status` as the same user and inside the same session as `dwm`. Check:
+
+```bash
+printf '%s\n' "$DISPLAY"
+xprop -root WM_NAME
+```
+
+Do not start the status process through `sudo`; root usually lacks the session's X authority. A sandbox exposing only a Linux abstract X socket is insufficient for x11rb 0.14.
+
+### Missing or wrong config
+
+Use `--config` with an absolute path. Without it, the startup error prints the real search list. TOML errors include the selected path and offending key/value.
+
+### GPU block disappears
+
+Run the documented `nvidia-smi` command directly. If the machine is not using the NVIDIA driver stack, remove `"gpu"` from `features`. The first failure is on stderr.
+
+### CPU temperature is absent
+
+CPU load still works. The kernel did not expose a sensor that matched the CPU/package heuristics. Inspect `/sys/class/hwmon` and `/sys/class/thermal`; no external `sensors` fallback exists.
+
+### Connectivity updates only on `idle`
+
+Look for `Feature connectivity event stream ...; using timed resync` on stderr. Route-netlink may be denied by a container or sandbox, or the listener may have stopped. Timed refresh continues and no listener retry occurs.
+
+### Glyphs are boxes or missing
+
+Configure a Nerd Font-capable `dwm` font, or clear the glyphs. The program writes UTF-8 bytes but cannot make the Xft font contain those code points.
+
+### Blocks appear in the wrong order
+
+`features` is intentionally rendered in reverse. To display `A B C` from left to right, configure `["C", "B", "A"]`.
+
+### The root name changes back
+
+Another process owns the same root-window properties. Stop `xsetroot -name`, shell loops, and other status feeders. Use the read-only `xprop` commands above to observe the race.
+
+## Development and verification
+
+`make` runs the release binary with `./config.toml`. It requires a live X session and writes the real root-window name.
+
+`make dev` does the same through `cargo-watch`:
+
+```bash
+cargo install cargo-watch
+make dev
+```
+
+`cargo-watch` is a development dependency, not a runtime dependency.
+
+Safe local quality commands:
+
+```bash
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets -- -D warnings
+cargo build --locked --release
+./scripts/install-smoke.sh
+```
+
+Parser and formatter tests use checked-in fixtures rather than the developer machine's live routes, resolver, counters, sensors, or GPU. The install smoke uses a `mktemp` tree and does not touch `$HOME`.
+
+Additional Linux integration checks:
+
+```bash
+./scripts/xvfb-smoke.sh
+./scripts/netlink-smoke.sh
+```
+
+The X11 smoke needs `Xvfb` and `xprop`. It writes only a temporary X server, then kills that server and requires the status process to fail on its next root write.
+
+The netlink smoke also needs `ip`, `mount`, `unshare`, and non-interactive `sudo`. It creates link/route state only inside disposable network and mount namespaces, uses a temporary Xvfb server, and does not change host routes or mounts.
+
+CI runs:
+
+- locked tests and a release build on exact Rust 1.85.0
+- locked tests, strict Clippy, release build, isolated install smoke, X11 smoke, and netlink smoke on latest stable Rust
+- a RustSec audit of `Cargo.lock`
+
+On this repository's project board, Done means the issue is merged into `develop` and all CI jobs pass on the exact merge commit. It does not claim manual validation on every GPU, sensor layout, X server, font, or Linux distribution. `master` remains owner-controlled.
