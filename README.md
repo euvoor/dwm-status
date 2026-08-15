@@ -45,7 +45,9 @@ This installs:
 ```
 
 The binary is replaced on each install. An existing config file is left untouched.
-Building requires Rust 1.85 or newer, Cargo, `make`, and the standard `install` utility.
+Building requires Rust 1.85 or newer, Cargo, `make`, and the standard `install` utility. CI tests the locked dependency graph on exactly Rust 1.85.0 and runs the full lint, audit, and runtime smoke suite on the latest stable toolchain.
+
+Cargo 1.84 and older cannot parse the edition-2024 manifests in the locked dependency graph, so they may stop at a dependency-manifest error before reporting this package's `rust-version`. Upgrade Rust instead of regenerating the lockfile.
 
 If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
 For example:
