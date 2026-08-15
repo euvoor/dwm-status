@@ -307,8 +307,10 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 
 - Renders `used · used%` as one compact line.
 - The sample config uses `󰍛 ` as its glyph.
-- Uses a fixed internal cadence instead of a config knob.
-- Values come from `/proc/meminfo`.
+- Samples immediately at startup, then once per second without a config knob.
+- Values come from one [`/proc/meminfo` snapshot](https://docs.kernel.org/filesystems/proc.html#meminfo).
+- Used RAM is `MemTotal - MemAvailable`. On kernels without `MemAvailable`, available RAM falls back to `MemFree + Buffers + Cached + SReclaimable`.
+- Kernel `kB` values are converted to bytes; the compact `K`, `M`, `G`, and larger output labels use powers of 1024.
 
 ### `cpu`
 
