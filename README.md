@@ -85,7 +85,7 @@ cargo build --locked --release
 
 Parser tests use checked-in fixtures under `tests/fixtures`; they do not read the developer machine's current routes, resolver, counters, sensors, or GPU state.
 
-The X11 smoke test requires `pgrep`, `xvfb-run`, `xauth`, and `xprop` (usually packaged as `procps`, `xvfb`, `xauth`, and `x11-utils`):
+The X11 smoke test requires `Xvfb` and `xprop` (usually packaged as `xvfb` and `x11-utils`):
 
 ```bash
 ./scripts/xvfb-smoke.sh
