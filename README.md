@@ -20,8 +20,9 @@ Build requirements:
 
 - Linux
 - Rust 1.85 or newer and Cargo
+- Bash
 - `make`
-- the standard `install` utility
+- GNU-compatible `install`, `readlink`, `stat`, and `nohup`
 
 ```bash
 git clone https://github.com/euvoor/dwm-status.git
@@ -38,13 +39,27 @@ The default install writes:
 
 The release binary is replaced on every install with mode 755. The config is created with mode 644 only when the destination file does not exist; `make install` never overwrites an existing config.
 
-Start it inside the X session, before `dwm):
+Start it inside the X session, before `dwm`:
 
 ```bash
 # ~/.xinitrc
 ~/.local/bin/dwm_status &
 exec dwm
 ```
+
+### Reinstall and restart
+
+After pulling a new version, rebuild, install, and replace the running user process from a terminal inside the active X session:
+
+```bash
+make reinstall
+```
+
+`reinstall` runs `install` first, then scans Linux `/proc` for processes owned by the current user whose executable resolves to the installed `BINDIR/BIN` path. This also matches the `(deleted)` executable path held by a process after its binary has been replaced. A same-named binary launched from another path is left alone.
+
+Matching processes receive `SIGTERM`. The command waits up to five seconds for them to stop, then launches the installed binary through `nohup` with `--config "$(CONFIG_FILE)"`. It checks the replacement for one second before returning. The replacement inherits `DISPLAY`, X authority, and the rest of the current environment; `reinstall` does not restart `dwm` or discover another user's X session.
+
+Each run truncates and rewrites `$XDG_STATE_HOME/dwm_status/dwm_status.log`, defaulting to `~/.local/state/dwm_status/dwm_status.log`. Startup failure output is retained there and also printed by `make`. The config is handled by the ordinary non-overwriting `install` target.
 
 The sample glyphs require a Nerd Font-capable `dwm` font:
 
@@ -65,6 +80,8 @@ The binary prefix and XDG config root are independent.
 | `XDG_CONFIG_HOME` | `$HOME/.config` | Base used by the default `CONFIG_DIR`; it is independent of `PREFIX`. |
 | `CONFIG_DIR` | `$(XDG_CONFIG_HOME)/dwm_status` | Config destination directory. |
 | `CONFIG_FILE` | `$(CONFIG_DIR)/config.toml` | Config destination path. If it is outside `CONFIG_DIR`, its parent must already exist. |
+| `XDG_STATE_HOME` | `$HOME/.local/state` | Base used by the default restart log path. |
+| `LOG_FILE` | `$(XDG_STATE_HOME)/dwm_status/dwm_status.log` | Output replaced by each `make reinstall`; its parent is created automatically. |
 | `BIN` | `dwm_status` | Destination filename only. Cargo always builds `target/release/dwm_status`. |
 
 For example:
@@ -313,6 +330,10 @@ xprop -root WM_NAME
 
 Do not start the status process through `sudo`; root usually lacks the session's X authority. A sandbox exposing only a Linux abstract X socket is insufficient for x11rb 0.14.
 
+### `make reinstall` fails
+
+Read the log path printed by the command. The usual causes are a missing `DISPLAY`, wrong X authority, or an invalid installed config. If termination times out, no replacement is started. A feeder launched from a different binary path is deliberately not stopped; stop it separately before using the installed copy.
+
 ### Missing or wrong config
 
 Use `--config` with an absolute path. Without it, the startup error prints the real search list. TOML errors include the selected path and offending key/value.
@@ -361,9 +382,10 @@ cargo test --locked --all-targets
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked --release
 ./scripts/install-smoke.sh
+./scripts/reinstall-smoke.sh
 ```
 
-Parser and formatter tests use checked-in fixtures rather than the developer machine's live routes, resolver, counters, sensors, or GPU. The install smoke uses a `mktemp` tree and does not touch `$HOME`.
+Parser and formatter tests use checked-in fixtures rather than the developer machine's live routes, resolver, counters, sensors, or GPU. The install and reinstall smokes use `mktemp` trees and do not touch `$HOME`, the live X session, or an installed status process. The reinstall smoke compiles a disposable process fixture to verify exact executable matching, deleted-inode replacement, detachment, and startup failure reporting.
 
 Additional Linux integration checks:
 
@@ -379,7 +401,7 @@ The netlink smoke also needs `ip`, `mount`, `unshare`, and non-interactive `sudo
 CI runs:
 
 - locked tests and a release build on exact Rust 1.85.0
-- locked tests, strict Clippy, release build, isolated install smoke, X11 smoke, and netlink smoke on latest stable Rust
+- locked tests, strict Clippy, release build, isolated install/reinstall smokes, X11 smoke, and netlink smoke on latest stable Rust
 - a RustSec audit of `Cargo.lock`
 
 On this repository's project board, Done means the issue is merged into `develop` and all CI jobs pass on the exact merge commit. It does not claim manual validation on every GPU, sensor layout, X server, font, or Linux distribution. `master` remains owner-controlled.
