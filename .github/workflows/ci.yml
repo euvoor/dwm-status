@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, master]
+  push:
+    branches: [develop, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Test, lint, build, and X11 smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # v7.0.1: https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - name: Use stable Rust
+        run: rustup default stable
+
+      - name: Test
+        run: cargo test --locked --all-targets
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Install X11 smoke dependencies
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends xauth xvfb x11-utils
+
+      - name: Verify X11 root properties
+        run: ./scripts/xvfb-smoke.sh
+
+  audit:
+    name: RustSec audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      # v7.0.1: https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # v2.0.0: https://github.com/rustsec/audit-check/releases/tag/v2.0.0
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
