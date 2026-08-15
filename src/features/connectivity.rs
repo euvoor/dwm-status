@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::time::{interval, Duration, MissedTickBehavior};
 
-use crate::config::ConnectivityConfig;
+use crate::config::{ConnectivityConfig, ConnectivityFormat};
 use crate::network::{read_connectivity_snapshot, spawn_connectivity_events, ConnectivitySnapshot};
 use crate::FeatureTrait;
 use crate::StatusBar;
@@ -25,7 +25,7 @@ impl FeatureTrait for Connectivity {
     /// Publish passive link state.
     async fn pull(&mut self) {
         let events = spawn_connectivity_events().ok();
-        let mut refresh = interval(Duration::from_secs(self.config.idle.max(1)));
+        let mut refresh = interval(Duration::from_secs(self.config.idle));
         refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         self._publish_snapshot().await;
@@ -64,9 +64,9 @@ impl Connectivity {
 
     /// Select the configured layout.
     fn _format_output(&self, snapshot: &ConnectivitySnapshot) -> String {
-        let output = match self.config.format.as_str() {
-            "full" => self._to_full_output(snapshot),
-            _ => self._to_compact_output(snapshot),
+        let output = match self.config.format {
+            ConnectivityFormat::Compact => self._to_compact_output(snapshot),
+            ConnectivityFormat::Full => self._to_full_output(snapshot),
         };
 
         format!("{}{}", self.config.glyph, output)

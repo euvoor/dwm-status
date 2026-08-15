@@ -11,21 +11,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use config::Config;
+use config::{Config, FeatureName};
 use features::FeatureTrait;
 use status_bar::StatusBar;
 use x11_root::RootNameWriter;
 
 use features::{Clock, Connectivity, Cpu, Gpu, Ram, Traffic};
-
-const SUPPORTED_FEATURES: [&str; 6] = [
-    "connectivity",
-    "traffic",
-    "cpu",
-    "clock",
-    "ram",
-    "gpu",
-];
 
 /// Keep startup flags in one place.
 struct CliArgs {
@@ -39,8 +30,14 @@ fn _load_config() -> Result<Config, String> {
     let config = read_to_string(&config_path)
         .map_err(|err| format!("Failed to read {}: {err}", config_path.display()))?;
 
-    toml::from_str::<Config>(&config)
-        .map_err(|err| format!("Error in {}: {err}", config_path.display()))
+    let config = toml::from_str::<Config>(&config)
+        .map_err(|err| format!("Error in {}: {err}", config_path.display()))?;
+
+    config
+        .validate()
+        .map_err(|err| format!("Error in {}: {err}", config_path.display()))?;
+
+    Ok(config)
 }
 
 /// Parse the supported startup flags.
@@ -157,14 +154,15 @@ async fn _build_output(status_bar: &StatusBar, config: &Config) -> String {
     let mut output: Vec<String> = vec![];
 
     for feature in &config.features {
-        match feature.as_str() {
-            "connectivity" => output.push(status_bar.connectivity.read().await.to_string()),
-            "traffic" => output.push(status_bar.traffic.read().await.to_string()),
-            "cpu" => output.push(status_bar.cpu.read().await.to_string()),
-            "clock" => output.push(status_bar.clock.read().await.to_string()),
-            "ram" => output.push(status_bar.ram.read().await.to_string()),
-            "gpu" => output.push(status_bar.gpu.read().await.to_string()),
-            _ => continue,
+        match feature {
+            FeatureName::Connectivity => {
+                output.push(status_bar.connectivity.read().await.to_string())
+            }
+            FeatureName::Traffic => output.push(status_bar.traffic.read().await.to_string()),
+            FeatureName::Cpu => output.push(status_bar.cpu.read().await.to_string()),
+            FeatureName::Clock => output.push(status_bar.clock.read().await.to_string()),
+            FeatureName::Ram => output.push(status_bar.ram.read().await.to_string()),
+            FeatureName::Gpu => output.push(status_bar.gpu.read().await.to_string()),
         };
     }
 
@@ -186,41 +184,6 @@ async fn _run_feature(mut feature: Box<dyn FeatureTrait + Send + Sync>) {
     feature.pull().await;
 }
 
-/// Reject unknown feature names before worker startup.
-fn _validate_features(config: &Config) -> Result<(), String> {
-    let unsupported = _unsupported_features(config.features.as_slice());
-
-    if unsupported.is_empty() {
-        return Ok(());
-    }
-
-    Err(format!(
-        "Unsupported features: {}. Supported features: {}",
-        unsupported.join(", "),
-        SUPPORTED_FEATURES.join(", "),
-    ))
-}
-
-/// Collect invalid feature names without reordering the config list.
-fn _unsupported_features(features: &[String]) -> Vec<String> {
-    let mut unsupported = vec![];
-
-    for feature in features {
-        if _is_supported_feature(feature.as_str()) {
-            continue;
-        }
-
-        unsupported.push(feature.clone());
-    }
-
-    unsupported
-}
-
-/// Keep feature validation in one place.
-fn _is_supported_feature(feature: &str) -> bool {
-    SUPPORTED_FEATURES.contains(&feature)
-}
-
 /// Start workers and the renderer.
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -237,44 +200,41 @@ async fn main() -> ExitCode {
 async fn _run() -> Result<(), String> {
     let config = _load_config()?;
 
-    _validate_features(&config)?;
-
     let status_bar = Arc::new(StatusBar::new());
     let mut resources: Vec<Box<dyn FeatureTrait + Send + Sync>> = vec![];
 
     for feature in &config.features {
-        match feature.as_str() {
-            "connectivity" => {
+        match feature {
+            FeatureName::Connectivity => {
                 let mut connectivity = Connectivity::new(status_bar.clone());
                 connectivity.set_config(config.connectivity.clone());
                 resources.push(Box::new(connectivity));
             }
-            "traffic" => {
+            FeatureName::Traffic => {
                 let mut traffic = Traffic::new(status_bar.clone());
                 traffic.set_config(config.traffic.clone());
                 resources.push(Box::new(traffic));
             }
-            "cpu" => {
+            FeatureName::Cpu => {
                 let mut cpu = Cpu::new(status_bar.clone());
                 cpu.set_config(config.cpu.clone());
                 resources.push(Box::new(cpu));
             }
-            "clock" => {
+            FeatureName::Clock => {
                 let mut clock = Clock::new(status_bar.clone());
                 clock.set_config(config.clock.clone())?;
                 resources.push(Box::new(clock));
             }
-            "ram" => {
+            FeatureName::Ram => {
                 let mut ram = Ram::new(status_bar.clone());
                 ram.set_config(config.ram.clone());
                 resources.push(Box::new(ram));
             }
-            "gpu" => {
+            FeatureName::Gpu => {
                 let mut gpu = Gpu::new(status_bar.clone());
                 gpu.set_config(config.gpu.clone());
                 resources.push(Box::new(gpu));
             }
-            _ => continue,
         };
     }
 
@@ -308,7 +268,9 @@ async fn _run() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{_candidate_config_paths_from, _parse_cli_args, _unsupported_features};
+    use super::{_build_output, _candidate_config_paths_from, _parse_cli_args};
+    use crate::config::Config;
+    use crate::status_bar::StatusBar;
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -341,16 +303,17 @@ mod tests {
         );
     }
 
-    /// Keep invalid feature names out of the runtime path.
-    #[test]
-    fn find_unsupported_features() {
-        let unsupported = _unsupported_features(&[
-            "clock".to_string(),
-            "bogus".to_string(),
-            "traffic".to_string(),
-            "old_net_stats".to_string(),
-        ]);
+    /// Preserve config order and the established reverse rendering pass.
+    #[tokio::test]
+    async fn render_features_in_reverse_config_order() {
+        let config = toml::from_str::<Config>(
+            r#"features = ["clock", "cpu"]"#,
+        ).unwrap();
+        let status_bar = StatusBar::new();
 
-        assert_eq!(unsupported, vec!["bogus", "old_net_stats"]);
+        *status_bar.clock.write().await = "clock".to_string();
+        *status_bar.cpu.write().await = "cpu".to_string();
+
+        assert_eq!(_build_output(&status_bar, &config).await, "▏cpu▕▏clock▕");
     }
 }

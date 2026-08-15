@@ -127,7 +127,7 @@ No external renderer command is required now. The binary talks to X directly.
 
 ## Config
 
-Config is TOML. Keep a full file, comment out what you do not need, and keep going.
+Config is strict TOML. Unknown keys, unknown feature names, duplicate features, an empty feature list, invalid connectivity layouts, and `connectivity.idle = 0` are startup errors. Partial feature tables are valid; omitted keys use the defaults below.
 
 You can point to a specific file with:
 
@@ -175,6 +175,25 @@ glyph = "󰢮 "
 [traffic]
 glyph = "󰖟 "
 ```
+
+| Key | Default | Valid values / effect |
+| --- | --- | --- |
+| `features` | required | Non-empty, unique list drawn from `connectivity`, `traffic`, `cpu`, `clock`, `ram`, and `gpu`. Config order is preserved; final output is rendered in reverse order. |
+| `connectivity.glyph` | `""` | Text prepended to the connectivity block. |
+| `connectivity.idle` | `1` | Resync interval in seconds; must be greater than zero. |
+| `connectivity.format` | `"compact"` | `"compact"` or `"full"`. |
+| `connectivity.show_iface` | `true` | Include the selected interface name. |
+| `connectivity.show_route` | `true` | Include default-route state. |
+| `connectivity.show_dns` | `true` | Include resolver state. |
+| `connectivity.show_kind` | `true` | Include interface type. |
+| `clock.glyph` | `""` | Text prepended to the clock block. |
+| `clock.format` | `"%a %d %b %Y %X %Z"` | A `chrono`/`strftime` format string. |
+| `clock.timezone` | `""` | Empty for local time, or an IANA timezone such as `Europe/Berlin` or `UTC`. |
+| `ram.glyph` | `""` | Text prepended to the RAM block. |
+| `cpu.glyph` | `""` | Text prepended to the CPU block. |
+| `cpu.sparkline_width` | `8` | `0` for one glyph per logical CPU; a positive value groups the graph to that width. |
+| `gpu.glyph` | `""` | Text prepended to the GPU block. |
+| `traffic.glyph` | `""` | Text prepended to the traffic block. |
 
 ## Output format
 
