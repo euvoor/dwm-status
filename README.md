@@ -197,7 +197,7 @@ glyph = "󰖟 "
 | `connectivity.show_dns` | `true` | Include resolver state. |
 | `connectivity.show_kind` | `true` | Include interface type. |
 | `clock.glyph` | `""` | Text prepended to the clock block. |
-| `clock.format` | `"%a %d %b %Y %X %Z"` | A `chrono`/`strftime` format string. |
+| `clock.format` | `"%a %d %b %Y %X %Z"` | A validated `chrono`/`strftime` format string. Invalid directives stop startup before X11 is opened. |
 | `clock.timezone` | `""` | Empty for local time, or an IANA timezone such as `Europe/Berlin` or `UTC`. |
 | `ram.glyph` | `""` | Text prepended to the RAM block. |
 | `cpu.glyph` | `""` | Text prepended to the CPU block. |
@@ -300,8 +300,10 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 - Defaults to the machine's local time.
 - `timezone = ""` uses the machine's local timezone.
 - Any non-empty `timezone` must be a named zone such as `Europe/Berlin` or `UTC`.
-- Refresh cadence comes from the format itself.
-- Second-based formats wake every second, minute-only formats wake every minute, and date-only formats wake at the next midnight in the selected timezone.
+- Refresh cadence comes from Chrono's parsed format items, so escaped percent signs remain literals.
+- Seconds, epoch timestamps, fractional seconds, and aliases containing them wake on the next second boundary.
+- Hour, minute, AM/PM, and timezone fields wake on the next minute boundary. This keeps zone names and offsets current across DST changes.
+- Date-only and literal formats wake at the first representable instant of the next local date, including dates where an offset transition removes midnight.
 
 ### `ram`
 
