@@ -1,5 +1,8 @@
 # dwm_status
 
+[![CI](https://github.com/euvoor/dwm-status/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/euvoor/dwm-status/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `dwm_status` is a Linux/X11 status feeder for `dwm`. It reads local machine state, formats one plain-text line, and replaces `WM_NAME` and `_NET_WM_NAME` on the X root window. It does not draw a bar and does not use a bar protocol.
 
 The root name is framed with `▏` and `▕`. Feature blocks are joined with `▕▏`, empty blocks are skipped, and `features` is rendered in reverse:
@@ -13,6 +16,26 @@ features = ["clock", "cpu"]
 ```
 
 Put the feature you want on the right first in `features`. If every enabled feature is empty or unavailable, the payload is `▏▕`.
+
+## Fit
+
+Use `dwm_status` when you want:
+
+- one compiled process that writes the X root name directly;
+- built-in Linux samplers configured with strict TOML;
+- independent feature scheduling instead of rerunning every block in one fixed shell loop;
+- local connectivity state that wakes on route-netlink changes and still performs timed resync;
+- startup validation and explicit failure/recovery diagnostics.
+
+It is not a general block plugin host: modules are compiled in, and there is no
+click callback interface. Use `slstatus`, `dwmblocks`, or a shell loop instead if
+arbitrary commands or click actions are requirements. Use another status tool
+for Wayland or portability beyond Linux/X11.
+
+Distribution is currently source-only. The project publishes no tagged
+releases, binaries, or package-manager recipes, and compatibility across
+untagged commits is not promised. Build the current `master` branch and keep the
+commit SHA when reporting a problem.
 
 ## Install and start
 
@@ -405,3 +428,20 @@ CI runs:
 - a RustSec audit of `Cargo.lock`
 
 On this repository's project board, Done means the issue is merged into `develop` and all CI jobs pass on the exact merge commit. It does not claim manual validation on every GPU, sensor layout, X server, font, or Linux distribution. `master` remains owner-controlled.
+
+## Contributing and support
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening code or documentation
+changes. Pull requests target `develop`; maintainers promote tested work to
+`master` separately.
+
+Use the [issue chooser](https://github.com/euvoor/dwm-status/issues/new/choose)
+for reproducible bugs, concrete feature proposals, and focused usage questions.
+Read [`SUPPORT.md`](SUPPORT.md) for the required environment and diagnostic
+details. Report suspected vulnerabilities privately as described in
+[`SECURITY.md`](SECURITY.md), and follow
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) in all project spaces.
+
+## License
+
+`dwm_status` is available under the [MIT License](LICENSE).
