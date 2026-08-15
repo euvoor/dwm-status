@@ -40,7 +40,7 @@ jobs:
         run: cargo build --locked --release
 
       - name: Install X11 smoke dependencies
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends xauth xvfb x11-utils
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends xvfb x11-utils
 
       - name: Verify X11 root properties
         run: ./scripts/xvfb-smoke.sh

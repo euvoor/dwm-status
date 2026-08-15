@@ -4,12 +4,14 @@ use tokio::fs::read_to_string;
 use tokio::time::{interval, Duration};
 
 use crate::config::RamConfig;
+use crate::features::feature_trait::{_publish_update, FeatureState};
 use crate::FeatureTrait;
 use crate::StatusBar;
 
 pub struct Ram {
     status_bar: Arc<StatusBar>,
     config: RamConfig,
+    state: FeatureState,
 }
 
 struct RamSnapshot {
@@ -24,6 +26,7 @@ impl FeatureTrait for Ram {
         Self {
             status_bar,
             config: RamConfig::default(),
+            state: FeatureState::default(),
         }
     }
 
@@ -32,13 +35,12 @@ impl FeatureTrait for Ram {
         let mut interval = interval(Duration::from_secs(1));
 
         loop {
-            let output = match _read_ram_snapshot().await {
-                Ok(snapshot) => self._format_output(&snapshot),
-                Err(_) => String::new(),
-            };
+            let sample = _read_ram_snapshot()
+                .await
+                .map(|snapshot| self._format_output(&snapshot));
+            let update = self.state.update("ram", sample);
 
-            *self.status_bar.ram.write().await = output;
-            self.status_bar.redraw.notify_one();
+            _publish_update(update, &self.status_bar.ram, &self.status_bar.redraw).await;
 
             interval.tick().await;
         }

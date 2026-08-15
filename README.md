@@ -85,13 +85,15 @@ cargo build --locked --release
 
 Parser tests use checked-in fixtures under `tests/fixtures`; they do not read the developer machine's current routes, resolver, counters, sensors, or GPU state.
 
-The X11 smoke test requires `xvfb-run`, `xauth`, and `xprop` (usually packaged as `xvfb`, `xauth`, and `x11-utils`):
+The X11 smoke test requires `Xvfb` and `xprop` (usually packaged as `xvfb` and `x11-utils`):
 
 ```bash
 ./scripts/xvfb-smoke.sh
 ```
 
 Those commands are development/CI dependencies only. They are not required to run `dwm_status` in an existing X11 session.
+
+The smoke test publishes both root-window properties, kills its temporary X server, and requires `dwm_status` to exit nonzero on the next write.
 
 Typical place:
 
@@ -110,6 +112,14 @@ Config lookup order is:
 
 If the selected config is missing or invalid, the process prints an error to stderr and exits nonzero.
 Unsupported arguments, unsupported feature names, invalid clock timezones, and an unavailable X11 session fail the same way.
+
+## Runtime failure policy
+
+CPU, RAM, GPU, traffic, and connectivity reads are recoverable. On the first failed sample, the affected block disappears and one feature-named error is written to stderr. Repeated failures stay quiet. The first later success republishes the block and writes one recovery message.
+
+If the connectivity netlink listener cannot start, timed resync remains active and stderr reports that fallback once.
+
+A worker panic, an unexpected worker return, or a failed X11 root-property write is fatal: the process reports the cause and exits nonzero. The last root-window value may remain visible until `dwm_status` or another root-name writer starts again. If you want automatic restart, put the process under your session supervisor.
 
 ## Runtime dependencies
 

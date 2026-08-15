@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-for required_command in xvfb-run xauth xprop; do
+for required_command in Xvfb xprop; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Missing X11 smoke dependency: $required_command" >&2
     exit 1
@@ -17,45 +17,113 @@ if [[ ! -x "$binary" ]]; then
 fi
 
 smoke_dir=$(mktemp -d)
-trap 'rm -rf -- "$smoke_dir"' EXIT
+xvfb_pid=""
+status_pid=""
+trap 'if [[ -n "$status_pid" ]]; then kill "$status_pid" 2>/dev/null || true; wait "$status_pid" 2>/dev/null || true; fi; if [[ -n "$xvfb_pid" ]]; then kill "$xvfb_pid" 2>/dev/null || true; wait "$xvfb_pid" 2>/dev/null || true; fi; rm -rf -- "$smoke_dir"' EXIT
 
 config_path="$smoke_dir/config.toml"
+stderr_path="$smoke_dir/dwm_status.stderr"
+xvfb_log_path="$smoke_dir/xvfb.log"
+display_path="$smoke_dir/display"
 
 cat >"$config_path" <<'EOF'
 features = ["clock"]
 
 [clock]
-format = "ci-x11-ok"
+format = "ci-x11-ok-%S"
 timezone = "UTC"
 EOF
 
-xvfb-run --auto-servernum --server-args="-screen 0 640x480x24" \
-  bash -euo pipefail -c '
-    binary=$1
-    config_path=$2
-    marker=ci-x11-ok
+exec 3>"$display_path"
+Xvfb -displayfd 3 -screen 0 640x480x24 -nolisten tcp -ac >"$xvfb_log_path" 2>&1 &
+xvfb_pid=$!
+exec 3>&-
 
-    "$binary" --config "$config_path" &
-    status_pid=$!
-    trap '\''kill "$status_pid" 2>/dev/null || true; wait "$status_pid" 2>/dev/null || true'\'' EXIT
+display=""
 
-    for _attempt in $(seq 1 50); do
-      if ! kill -0 "$status_pid" 2>/dev/null; then
-        echo "dwm_status stopped before publishing X11 properties" >&2
-        exit 1
-      fi
-
-      wm_name=$(xprop -root WM_NAME 2>/dev/null || true)
-      net_wm_name=$(xprop -root _NET_WM_NAME 2>/dev/null || true)
-
-      if [[ "$wm_name" == *"$marker"* && "$net_wm_name" == *"$marker"* ]]; then
-        exit 0
-      fi
-
-      sleep 0.1
-    done
-
-    echo "Timed out waiting for WM_NAME and _NET_WM_NAME" >&2
-    xprop -root WM_NAME _NET_WM_NAME >&2 || true
+for _attempt in $(seq 1 50); do
+  if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+    echo "Xvfb stopped before accepting connections" >&2
+    cat "$xvfb_log_path" >&2
     exit 1
-  ' bash "$binary" "$config_path"
+  fi
+
+  if [[ -s "$display_path" ]]; then
+    display=":$(<"$display_path")"
+
+    if DISPLAY="$display" xprop -root >/dev/null 2>&1; then
+      break
+    fi
+  fi
+
+  sleep 0.1
+done
+
+if [[ -z "$display" ]] || ! DISPLAY="$display" xprop -root >/dev/null 2>&1; then
+  echo "Timed out waiting for Xvfb" >&2
+  cat "$xvfb_log_path" >&2
+  exit 1
+fi
+
+DISPLAY="$display" "$binary" --config "$config_path" 2>"$stderr_path" &
+status_pid=$!
+marker=ci-x11-ok-
+wm_name=""
+net_wm_name=""
+
+for _attempt in $(seq 1 50); do
+  if ! kill -0 "$status_pid" 2>/dev/null; then
+    echo "dwm_status stopped before publishing X11 properties" >&2
+    cat "$stderr_path" >&2
+    exit 1
+  fi
+
+  wm_name=$(DISPLAY="$display" xprop -root WM_NAME 2>/dev/null || true)
+  net_wm_name=$(DISPLAY="$display" xprop -root _NET_WM_NAME 2>/dev/null || true)
+
+  if [[ "$wm_name" == *"$marker"* && "$net_wm_name" == *"$marker"* ]]; then
+    break
+  fi
+
+  sleep 0.1
+done
+
+
+if [[ "$wm_name" != *"$marker"* || "$net_wm_name" != *"$marker"* ]]; then
+  echo "Timed out waiting for WM_NAME and _NET_WM_NAME" >&2
+  DISPLAY="$display" xprop -root WM_NAME _NET_WM_NAME >&2 || true
+  exit 1
+fi
+
+kill "$xvfb_pid"
+wait "$xvfb_pid" 2>/dev/null || true
+xvfb_pid=""
+
+for _attempt in $(seq 1 50); do
+  if ! kill -0 "$status_pid" 2>/dev/null; then
+    set +e
+    wait "$status_pid"
+    status=$?
+    set -e
+    status_pid=""
+
+    if [[ "$status" -eq 0 ]]; then
+      echo "dwm_status exited successfully after losing X11" >&2
+      exit 1
+    fi
+
+    if ! grep -Eq "Failed to (queue|write|flush).*X11" "$stderr_path"; then
+      echo "dwm_status did not report the fatal X11 write" >&2
+      cat "$stderr_path" >&2
+      exit 1
+    fi
+
+    exit 0
+  fi
+
+  sleep 0.1
+done
+
+echo "dwm_status stayed alive after losing X11" >&2
+cat "$stderr_path" >&2
+exit 1
