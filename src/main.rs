@@ -24,8 +24,13 @@ struct CliArgs {
     config_path: Option<PathBuf>,
 }
 
+struct LoadedConfig {
+    config: Config,
+    path: PathBuf,
+}
+
 /// Read the selected config file.
-fn _load_config() -> Result<Config, String> {
+fn _load_config() -> Result<LoadedConfig, String> {
     let cli_args = _parse_cli_args(args_os().skip(1).collect())?;
     let config_path = _resolve_config_path(cli_args.config_path.as_deref())?;
     let config = read_to_string(&config_path)
@@ -38,7 +43,10 @@ fn _load_config() -> Result<Config, String> {
         .validate()
         .map_err(|err| format!("Error in {}: {err}", config_path.display()))?;
 
-    Ok(config)
+    Ok(LoadedConfig {
+        config,
+        path: config_path,
+    })
 }
 
 /// Parse the supported startup flags.
@@ -225,7 +233,8 @@ async fn main() -> ExitCode {
 
 /// Keep startup failures on one nonzero exit path.
 async fn _run() -> Result<(), String> {
-    let config = _load_config()?;
+    let loaded_config = _load_config()?;
+    let config = loaded_config.config;
 
     let status_bar = Arc::new(StatusBar::new());
     let mut resources: Vec<(FeatureName, Box<dyn FeatureTrait + Send + Sync>)> = vec![];
@@ -249,7 +258,8 @@ async fn _run() -> Result<(), String> {
             }
             FeatureName::Clock => {
                 let mut clock = Clock::new(status_bar.clone());
-                clock.set_config(config.clock.clone())?;
+                clock.set_config(config.clock.clone())
+                    .map_err(|err| format!("Error in {}: {err}", loaded_config.path.display()))?;
                 resources.push((*feature, Box::new(clock)));
             }
             FeatureName::Ram => {

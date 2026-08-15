@@ -69,6 +69,21 @@ fn invalid_timezone_exits_nonzero() {
     assert!(stderr.contains("Unsupported clock timezone: Mars/Olympus_Mons"));
 }
 
+/// Reject invalid clock directives with source context before opening X11.
+#[test]
+fn invalid_clock_format_exits_nonzero() {
+    let output = _run_with_config(
+        "features = [\"clock\"]\n\n[clock]\nformat = \"%Q\"\n",
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("Error in /dev/stdin"));
+    assert!(stderr.contains("Invalid clock format"));
+    assert!(stderr.contains("%Q"));
+    assert!(!stderr.contains("Failed to connect to X11"));
+}
+
 /// Report an unavailable X session as a failed process.
 #[test]
 fn missing_display_exits_nonzero() {
