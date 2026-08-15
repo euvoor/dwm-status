@@ -45,7 +45,7 @@ This installs:
 ```
 
 The binary is replaced on each install. An existing config file is left untouched.
-Building requires Rust, Cargo, `make`, and the standard `install` utility.
+Building requires Rust 1.85 or newer, Cargo, `make`, and the standard `install` utility.
 
 If you use the sample glyphs, set a Nerd Font-capable status font in `dwm`.
 For example:
