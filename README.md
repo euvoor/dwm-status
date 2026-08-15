@@ -271,10 +271,10 @@ Example:
 The CPU sparkline uses:
 
 ```text
-▁▂▃▄▅▆▇█▉
+▁▂▃▄▅▆▇█
 ```
 
-Left to right means low to high CPU activity, either per core or grouped by config.
+Left to right means low to high CPU activity, either per core or grouped by config. `█` is the 100% ceiling.
 
 ## Feature notes
 
@@ -316,6 +316,7 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 - The sample config uses ` ` as its glyph.
 - Uses a fixed internal one-second cadence.
 - Usage comes from `/proc/stat`.
+- Usage is `100 × (Δtotal - Δidle) / Δtotal`, clamped to 0–100. `total` counts user through steal once; `idle` is idle plus iowait; guest and guest-nice are excluded because Linux already includes them in user and nice accounting.
 - `sparkline_width = 0` renders one glyph per logical CPU.
 - Any positive `sparkline_width` groups the sparkline to that many columns.
 - Temperature is read directly from `/sys/class/hwmon` and `/sys/class/thermal` when the kernel exposes a sane CPU sensor.

@@ -144,26 +144,29 @@ fn _parse_cpu_line(line: &str) -> Option<(&str, CpuSample)> {
     let mut fields = line.split_whitespace();
     let name = fields.next()?;
 
-    if !name.starts_with("cpu") {
+    if !_is_cpu_name(name) {
         return None;
     }
 
-    let mut total = 0;
-    let mut idle = 0;
-    let mut index = 0;
+    let mut total: u64 = 0;
+    let mut idle: u64 = 0;
+    let mut field_count = 0;
 
-    for field in fields {
+    for (index, field) in fields.enumerate() {
         let value = field.parse::<u64>().ok()?;
-        total += value;
 
-        if index == 3 || index == 4 {
-            idle += value;
+        if index < 8 {
+            total = total.checked_add(value)?;
         }
 
-        index += 1;
+        if index == 3 || index == 4 {
+            idle = idle.checked_add(value)?;
+        }
+
+        field_count += 1;
     }
 
-    if index < 4 {
+    if field_count < 4 {
         return None;
     }
 
@@ -255,11 +258,11 @@ fn _compress_usages(usages: &[f64], width: usize) -> Vec<f64> {
 
 /// Map one usage bucket onto the bar font sparkline.
 fn _sparkline_glyph(usage: f64) -> char {
-    let sparkline = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '▉'];
-    let scaled = (usage.clamp(0.0, 100.0) / 100.0) * 8.0;
-    let index = scaled.round() as usize;
+    let sparkline = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let scaled = (usage.clamp(0.0, 100.0) / 100.0) * sparkline.len() as f64;
+    let index = scaled.floor() as usize;
 
-    sparkline[index.min(8)]
+    sparkline[index.min(sparkline.len() - 1)]
 }
 
 /// Probe sysfs for a CPU temperature without external tools.
@@ -500,11 +503,34 @@ fn _contains_any(text: &str, tokens: &[&str]) -> bool {
     false
 }
 
+/// Accept only the aggregate label or a decimal core index.
+fn _is_cpu_name(name: &str) -> bool {
+    if name == "cpu" {
+        return true;
+    }
+
+    let Some(index) = name.strip_prefix("cpu") else {
+        return false;
+    };
+
+    if index.is_empty() {
+        return false;
+    }
+
+    for ch in index.chars() {
+        if !ch.is_ascii_digit() {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         _compress_usages, _from_temperature_value, _parse_cpu_snapshot, _score_hwmon_candidate,
-        _score_thermal_candidate, _usage_percent, CpuSample,
+        _score_thermal_candidate, _sparkline_glyph, _usage_percent, CpuSample,
     };
 
     /// Parse a sysfs temperature fixture without reading host sensors.
@@ -528,6 +554,28 @@ mod tests {
         assert_eq!(snapshot.cores[0], CpuSample { total: 100, idle: 25 });
     }
 
+    /// Exclude guest counters already included in user and nice time.
+    #[test]
+    fn exclude_guest_time_from_cpu_totals() {
+        let snapshot = _parse_cpu_snapshot(include_str!(
+            "../../tests/fixtures/proc/stat_guest.txt",
+        )).unwrap();
+
+        assert_eq!(snapshot.total, CpuSample { total: 218, idle: 50 });
+        assert_eq!(snapshot.cores[0], CpuSample { total: 124, idle: 25 });
+        assert_eq!(snapshot.cores[1], CpuSample { total: 94, idle: 25 });
+    }
+
+    /// Ignore labels that only share the kernel CPU prefix.
+    #[test]
+    fn reject_malformed_cpu_names() {
+        let snapshot = _parse_cpu_snapshot(
+            "cpu 10 0 5 20 5\ncpufreq 1 2 3 4\ncpu-1 1 2 3 4\ncpu2x 1 2 3 4\n",
+        ).unwrap();
+
+        assert!(snapshot.cores.is_empty());
+    }
+
     /// Reject procfs text without an aggregate CPU row.
     #[test]
     fn reject_snapshot_without_aggregate_cpu() {
@@ -543,6 +591,45 @@ mod tests {
         let previous = CpuSample { total: 100, idle: 50 };
 
         assert_eq!(_usage_percent(current, previous), 60.0);
+    }
+
+    /// Keep aggregate and per-core percentages on the same formula.
+    #[test]
+    fn calculate_aggregate_and_core_deltas() {
+        let previous = _parse_cpu_snapshot(
+            "cpu 100 0 50 100 20 10 10 10 30 0\ncpu0 50 0 25 50 10 5 5 5 15 0\n",
+        ).unwrap();
+        let current = _parse_cpu_snapshot(
+            "cpu 140 0 70 130 30 10 10 10 40 0\ncpu0 70 0 35 65 15 5 5 5 20 0\n",
+        ).unwrap();
+
+        assert_eq!(_usage_percent(current.total, previous.total), 60.0);
+        assert_eq!(_usage_percent(current.cores[0], previous.cores[0]), 60.0);
+    }
+
+    /// Clamp counter resets and impossible idle deltas to the display range.
+    #[test]
+    fn clamp_reset_and_malformed_deltas() {
+        let reset = _usage_percent(
+            CpuSample { total: 50, idle: 20 },
+            CpuSample { total: 100, idle: 40 },
+        );
+        let excessive_idle = _usage_percent(
+            CpuSample { total: 200, idle: 190 },
+            CpuSample { total: 100, idle: 20 },
+        );
+
+        assert_eq!(reset, 0.0);
+        assert_eq!(excessive_idle, 0.0);
+    }
+
+    /// Keep sparkline height monotonic with a full block at the ceiling.
+    #[test]
+    fn map_sparkline_monotonically() {
+        let glyphs = [0.0, 12.5, 25.0, 37.5, 50.0, 62.5, 75.0, 87.5, 100.0]
+            .map(_sparkline_glyph);
+
+        assert_eq!(glyphs, ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█', '█']);
     }
 
     /// Keep the sparkline width stable on high-core machines.
