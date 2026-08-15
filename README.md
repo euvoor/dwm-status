@@ -327,12 +327,14 @@ Use it as an honest local indicator, not as proof that the wider Internet is rea
 ### `gpu`
 
 - NVIDIA-only today.
-- Renders `usage% · V: vram% · T: temp° · F: fan%` as one compact line.
+- Renders `gpu-busy% · V: occupied% · T: temp° · F: fan%` as one compact line.
+- Example: `󰢮 23% · V: 18% · T: 47° · F: 32%`.
 - The sample config uses `󰢮 ` as its glyph.
 - Uses a fixed internal one-second cadence.
-- Reads telemetry through `nvidia-smi --query-gpu=... --format=csv,noheader,nounits`.
+- Runs one `nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,fan.speed --format=csv,noheader,nounits` process per sample.
+- `V:` is [frame-buffer occupancy](https://docs.nvidia.com/deploy/nvidia-smi/index.html#fb-memory-usage): `memory.used / memory.total`, rounded to the nearest whole percent and clamped to 0–100. It is not NVIDIA's memory-bus utilization metric.
 - Uses the first GPU row reported by `nvidia-smi`.
-- Drops unsupported fields such as fan speed instead of printing noisy placeholders.
+- Drops unsupported fields such as fan speed, malformed memory values, and zero memory totals instead of printing noisy placeholders.
 
 ### `traffic`
 
