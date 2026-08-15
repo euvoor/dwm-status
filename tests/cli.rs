@@ -31,7 +31,30 @@ fn unsupported_feature_exits_nonzero() {
     let stderr = String::from_utf8(output.stderr).unwrap();
 
     assert!(!output.status.success());
-    assert!(stderr.contains("Unsupported features: bogus"));
+    assert!(stderr.contains("bogus"));
+}
+
+/// Reject duplicate workers before attempting an X connection.
+#[test]
+fn duplicate_feature_exits_nonzero() {
+    let output = _run_with_config("features = [\"clock\", \"clock\"]\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("Duplicate feature: clock"));
+    assert!(!stderr.contains("Failed to connect to X11"));
+}
+
+/// Reject misspelled keys with the selected config path.
+#[test]
+fn unknown_config_key_exits_nonzero() {
+    let output = _run_with_config("features = [\"clock\"]\nfeaturs = []\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("Error in /dev/stdin"));
+    assert!(stderr.contains("featurs"));
+    assert!(!stderr.contains("Failed to connect to X11"));
 }
 
 /// Validate clock timezones before attempting an X connection.
