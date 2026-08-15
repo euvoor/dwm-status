@@ -124,6 +124,15 @@ impl Default for TrafficConfig {
 mod tests {
     use super::Config;
 
+    /// Keep the checked-in sample config parseable.
+    #[test]
+    fn parse_sample_config() {
+        let config = toml::from_str::<Config>(include_str!("../config.toml")).unwrap();
+
+        assert_eq!(config.features.len(), 6);
+        assert_eq!(config.clock.timezone, "");
+    }
+
     /// Parse a named timezone from clock config.
     #[test]
     fn parse_clock_config() {

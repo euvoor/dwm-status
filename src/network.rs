@@ -131,29 +131,8 @@ pub async fn read_primary_interface() -> Result<Option<InterfaceState>, String> 
 /// Read byte counters for all visible interfaces.
 pub async fn read_dev_stats() -> Result<HashMap<String, DevStats>, String> {
     let dev = _read_text("/proc/net/dev").await?;
-    let mut stats = HashMap::new();
 
-    for line in dev.split('\n') {
-        if ! line.contains(':') {
-            continue;
-        }
-
-        let line = match line.split_once(':') {
-            Some(line) => line,
-            None => continue,
-        };
-        let iface = line.0.trim().to_string();
-        let mut cols = line.1.split_whitespace();
-        let recv_bytes = _parse_u128(cols.next());
-        let trans_bytes = _parse_u128(cols.nth(7));
-
-        stats.insert(iface, DevStats {
-            recv_bytes,
-            trans_bytes,
-        });
-    }
-
-    Ok(stats)
+    Ok(_from_dev_stats(dev.as_str()))
 }
 
 /// Classify an interface from its kernel-visible traits.
@@ -220,6 +199,12 @@ async fn _read_default_route_ifaces() -> Result<Vec<String>, String> {
 /// Read default-route interfaces from the IPv4 route table.
 async fn _read_default_route_ifaces_v4() -> Result<Vec<String>, String> {
     let routes = _read_text("/proc/net/route").await?;
+
+    Ok(_from_default_route_ifaces_v4(routes.as_str()))
+}
+
+/// Parse IPv4 default-route interfaces from procfs text.
+fn _from_default_route_ifaces_v4(routes: &str) -> Vec<String> {
     let mut ifaces = vec![];
 
     for line in routes.lines().skip(1) {
@@ -234,7 +219,7 @@ async fn _read_default_route_ifaces_v4() -> Result<Vec<String>, String> {
         }
     }
 
-    Ok(ifaces)
+    ifaces
 }
 
 /// Read default-route interfaces from the IPv6 route table.
@@ -243,6 +228,12 @@ async fn _read_default_route_ifaces_v6() -> Result<Vec<String>, String> {
         Ok(routes) => routes,
         Err(_) => return Ok(vec![]),
     };
+
+    Ok(_from_default_route_ifaces_v6(routes.as_str()))
+}
+
+/// Parse IPv6 default-route interfaces from procfs text.
+fn _from_default_route_ifaces_v6(routes: &str) -> Vec<String> {
     let mut ifaces = vec![];
 
     for line in routes.lines() {
@@ -257,7 +248,7 @@ async fn _read_default_route_ifaces_v6() -> Result<Vec<String>, String> {
         }
     }
 
-    Ok(ifaces)
+    ifaces
 }
 
 /// Read link state for all interfaces exposed by the kernel.
@@ -315,6 +306,12 @@ fn _read_iface_names() -> Result<Vec<String>, String> {
 /// Summarize how the resolver is configured locally.
 async fn _read_dns_state() -> Result<DnsState, String> {
     let resolv_conf = _read_text("/etc/resolv.conf").await?;
+
+    Ok(_from_dns_state(resolv_conf.as_str()))
+}
+
+/// Parse resolver state from resolv.conf text.
+fn _from_dns_state(resolv_conf: &str) -> DnsState {
     let mut has_loopback = false;
     let mut has_remote = false;
 
@@ -335,14 +332,12 @@ async fn _read_dns_state() -> Result<DnsState, String> {
         }
     }
 
-    let dns_state = match (has_loopback, has_remote) {
+    match (has_loopback, has_remote) {
         (false, false) => DnsState::Missing,
         (true, false) => DnsState::Stub,
         (false, true) => DnsState::Direct,
         (true, true) => DnsState::Mixed,
-    };
-
-    Ok(dns_state)
+    }
 }
 
 /// Prefer carrier when available for a stricter link answer.
@@ -412,4 +407,90 @@ fn _is_tunnel_iface(iface: &str) -> bool {
         || iface.starts_with("ppp")
         || iface.starts_with("tailscale")
         || iface.starts_with("zt")
+}
+
+/// Parse interface counters from procfs text.
+fn _from_dev_stats(dev: &str) -> HashMap<String, DevStats> {
+    let mut stats = HashMap::new();
+
+    for line in dev.split('\n') {
+        if ! line.contains(':') {
+            continue;
+        }
+
+        let line = match line.split_once(':') {
+            Some(line) => line,
+            None => continue,
+        };
+        let iface = line.0.trim().to_string();
+        let mut cols = line.1.split_whitespace();
+        let recv_bytes = _parse_u128(cols.next());
+        let trans_bytes = _parse_u128(cols.nth(7));
+
+        stats.insert(iface, DevStats {
+            recv_bytes,
+            trans_bytes,
+        });
+    }
+
+    stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        _from_default_route_ifaces_v4,
+        _from_default_route_ifaces_v6,
+        _from_dev_stats,
+        _from_dns_state,
+        DnsState,
+    };
+
+    /// Parse device counters without reading the host network namespace.
+    #[test]
+    fn parse_dev_stats_fixture() {
+        let stats = _from_dev_stats(include_str!("../tests/fixtures/proc/net/dev.txt"));
+        let ethernet = stats.get("enp10s0").unwrap();
+
+        assert_eq!(ethernet.recv_bytes, 1_234);
+        assert_eq!(ethernet.trans_bytes, 5_678);
+    }
+
+    /// Keep malformed procfs counter fields deterministic.
+    #[test]
+    fn parse_malformed_dev_counter_as_zero() {
+        let stats = _from_dev_stats("eth0: nope 0 0 0 0 0 0 0 42 0 0 0 0 0 0 0\n");
+        let ethernet = stats.get("eth0").unwrap();
+
+        assert_eq!(ethernet.recv_bytes, 0);
+        assert_eq!(ethernet.trans_bytes, 42);
+    }
+
+    /// Parse IPv4 default-route interfaces from procfs text.
+    #[test]
+    fn parse_ipv4_default_route_fixture() {
+        let ifaces = _from_default_route_ifaces_v4(
+            include_str!("../tests/fixtures/proc/net/route.txt"),
+        );
+
+        assert_eq!(ifaces, vec!["enp10s0"]);
+    }
+
+    /// Parse IPv6 default-route interfaces from procfs text.
+    #[test]
+    fn parse_ipv6_default_route_fixture() {
+        let ifaces = _from_default_route_ifaces_v6(
+            include_str!("../tests/fixtures/proc/net/ipv6_route.txt"),
+        );
+
+        assert_eq!(ifaces, vec!["wlp4s0"]);
+    }
+
+    /// Classify resolver state from fixture text.
+    #[test]
+    fn parse_dns_fixture() {
+        let state = _from_dns_state(include_str!("../tests/fixtures/etc/resolv.conf"));
+
+        assert_eq!(state, DnsState::Mixed);
+    }
 }

@@ -67,6 +67,12 @@ async fn _read_ram_snapshot() -> Result<RamSnapshot, String> {
     let meminfo = read_to_string("/proc/meminfo")
         .await
         .map_err(|err| format!("Failed to read /proc/meminfo: {err}"))?;
+
+    _from_meminfo(meminfo.as_str())
+}
+
+/// Parse the RAM fields used by the current status calculation.
+fn _from_meminfo(meminfo: &str) -> Result<RamSnapshot, String> {
     let mut total = 0;
     let mut free = 0;
     let mut buffers = 0;
@@ -149,7 +155,25 @@ fn _used_percent(snapshot: &RamSnapshot) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{_parse_meminfo_bytes, _used_percent, RamSnapshot};
+    use super::{_from_meminfo, _parse_meminfo_bytes, _used_percent, RamSnapshot};
+
+    /// Parse a complete meminfo fixture without reading the host.
+    #[test]
+    fn parse_meminfo_fixture() {
+        let snapshot = _from_meminfo(include_str!("../../tests/fixtures/proc/meminfo.txt"))
+            .unwrap();
+
+        assert_eq!(snapshot.total, 1_024_000_000);
+        assert_eq!(snapshot.used, 614_400_000);
+    }
+
+    /// Reject meminfo with a malformed total field.
+    #[test]
+    fn reject_meminfo_without_numeric_total() {
+        let snapshot = _from_meminfo("MemTotal: unknown kB\nMemFree: 20 kB\n");
+
+        assert!(snapshot.is_err());
+    }
 
     /// Parse the kernel-style unit suffix from meminfo.
     #[test]
